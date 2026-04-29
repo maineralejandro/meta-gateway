@@ -1,0 +1,9 @@
+import os
+os.environ.setdefault("DB_DIR", "/tmp/hermes_test")
+os.environ.setdefault("DB_NAME", "test.db")
+os.environ.setdefault("DB_PATH", "/tmp/hermes_test/test.db")
+os.environ.setdefault("WHATSAPP_ACCESS_TOKEN", "test-token")
+os.environ.setdefault("WHATSAPP_PHONE_NUMBER_ID", "123456")
+os.environ.setdefault("WHATSAPP_VERIFY_TOKEN", "test_verify")
+os.environ.setdefault("LLM_API_KEY", "nvapi-REPLACE_ME")
+os.environ.setdefault("DASHBOARD_TOKEN", "test_dashboard_token")

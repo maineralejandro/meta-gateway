@@ -1,0 +1,80 @@
+import { useEffect, useRef } from 'react'
+
+interface Message {
+  id: number
+  phone: string
+  direction: string
+  source: string
+  text: string
+  media_type: string | null
+  created_at: string
+}
+
+interface Props {
+  messages: Message[]
+  phone: string
+  state: string
+}
+
+const SOURCE_STYLE: Record<string, { bubble: string; prefix: string }> = {
+  customer: { bubble: 'bg-gray-700 text-white', prefix: '' },
+  bot: { bubble: 'bg-blue-900/60 text-blue-100', prefix: '🤖' },
+  human: { bubble: 'bg-green-900/60 text-green-100', prefix: '👤' },
+}
+
+export default function ChatPanel({ messages, phone, state }: Props) {
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages.length])
+
+  if (!phone) {
+    return (
+      <div className="flex items-center justify-center h-full text-gray-500">
+        Selecciona una conversación
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="p-3 border-b border-gray-700 flex items-center justify-between">
+        <div>
+          <h3 className="font-mono font-bold">{phone}</h3>
+          <span className={`text-xs px-2 py-0.5 rounded ${
+            state === 'BOT_ACTIVE' ? 'bg-green-900/40 text-green-400' :
+            state === 'PENDING_APPROVAL' ? 'bg-yellow-900/40 text-yellow-400' :
+            'bg-red-900/40 text-red-400'
+          }`}>
+            {state}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {messages.length === 0 && (
+          <p className="text-gray-500 text-sm text-center">No hay mensajes</p>
+        )}
+        {messages.map(msg => {
+          const style = SOURCE_STYLE[msg.source] || SOURCE_STYLE.customer
+          const isCustomer = msg.direction === 'inbound'
+          return (
+            <div key={msg.id} className={`flex ${isCustomer ? 'justify-start' : 'justify-end'}`}>
+              <div className={`max-w-[75%] rounded-lg px-3 py-2 ${style.bubble}`}>
+                {msg.source !== 'customer' && (
+                  <span className="text-xs opacity-60 block mb-1">{style.prefix} {msg.source}</span>
+                )}
+                <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                <span className="text-xs opacity-40 block mt-1 text-right">
+                  {new Date(msg.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            </div>
+          )
+        })}
+        <div ref={bottomRef} />
+      </div>
+    </div>
+  )
+}

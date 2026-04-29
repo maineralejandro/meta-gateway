@@ -1,0 +1,40 @@
+# Environment & secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+# .venv/ = Linux/WSL, win_venv/ = Windows nativo
+.venv/
+win_venv/
+
+# Node
+node_modules/
+.next/
+out/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Orphaned files
+=1.0.0
