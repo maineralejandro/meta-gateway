@@ -3,7 +3,14 @@ import os
 import sqlite3
 from pathlib import Path
 from core.config import settings
-from db.models import Conversation, Message, row_to_conversation, row_to_message
+from db.models import (
+    Agent,
+    Conversation,
+    Message,
+    row_to_agent,
+    row_to_conversation,
+    row_to_message,
+)
 
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
@@ -56,7 +63,7 @@ class Database:
     async def get_conversation(self, phone: str) -> Conversation | None:
         row = await self.fetchone(
             """SELECT phone, contact_name, state, last_message_at,
-               requires_human_review, unread_count, sentiment_score, confidence, created_at
+               requires_human_review, unread_count, sentiment_score, confidence, agent_id, created_at
                FROM conversations WHERE phone=?""",
             (phone,),
         )
@@ -65,7 +72,7 @@ class Database:
     async def get_all_conversations(self) -> list[Conversation]:
         rows = await self.fetchall(
             """SELECT phone, contact_name, state, last_message_at,
-               requires_human_review, unread_count, sentiment_score, confidence, created_at
+               requires_human_review, unread_count, sentiment_score, confidence, agent_id, created_at
                FROM conversations ORDER BY last_message_at DESC"""
         )
         return [row_to_conversation(r) for r in rows]
@@ -77,6 +84,66 @@ class Database:
             (phone, limit),
         )
         return [row_to_message(r) for r in rows]
+
+    # --- Agent Methods ---
+
+    async def get_agent(self, agent_id: int | None = None, is_active: bool = False) -> Agent | None:
+        if agent_id:
+            row = await self.fetchone("SELECT * FROM agents WHERE id=?", (agent_id,))
+        elif is_active:
+            row = await self.fetchone(
+                "SELECT * FROM agents WHERE is_active=1 ORDER BY updated_at DESC LIMIT 1"
+            )
+        else:
+            row = await self.fetchone("SELECT * FROM agents ORDER BY updated_at DESC LIMIT 1")
+        return row_to_agent(row)
+
+    async def get_all_agents(self) -> list[Agent]:
+        rows = await self.fetchall("SELECT * FROM agents ORDER BY name ASC")
+        return [row_to_agent(r) for r in rows if r]
+
+    async def upsert_agent(self, agent: Agent) -> int:
+        if agent.id:
+            await self.execute(
+                """UPDATE agents SET name=?, description=?, system_prompt=?,
+                   escalation_marker=?, fallback_responses=?, is_active=?, updated_at=CURRENT_TIMESTAMP
+                   WHERE id=?""",
+                (
+                    agent.name,
+                    agent.description,
+                    agent.system_prompt,
+                    agent.escalation_marker,
+                    agent.fallback_responses,
+                    agent.is_active,
+                    agent.id,
+                ),
+            )
+            await self.commit()
+            return agent.id
+        else:
+            conn = await self._get_conn()
+            cursor = await conn.execute(
+                """INSERT INTO agents (name, description, system_prompt, escalation_marker, fallback_responses, is_active)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    agent.name,
+                    agent.description,
+                    agent.system_prompt,
+                    agent.escalation_marker,
+                    agent.fallback_responses,
+                    agent.is_active,
+                ),
+            )
+            await self.commit()
+            return cursor.lastrowid
+
+    async def activate_agent(self, agent_id: int):
+        await self.execute_transaction(
+            [
+                ("UPDATE agents SET is_active=0", ()),
+                ("UPDATE agents SET is_active=1 WHERE id=?", (agent_id,)),
+            ]
+        )
 
     async def close(self):
         if self._conn:

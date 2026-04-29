@@ -59,6 +59,22 @@ async def update_state(req: UpdateStateRequest):
     return {"status": "ok", "old_state": old_state, "new_state": req.state}
 
 
+class ChangeAgentRequest(BaseModel):
+    phone: str
+    agent_id: int
+
+
+@router.post("/agent")
+async def change_agent(req: ChangeAgentRequest):
+    db = await get_db()
+    await db.execute(
+        "UPDATE conversations SET agent_id=? WHERE phone=?", (req.agent_id, req.phone)
+    )
+    await db.commit()
+    logger.info("agent_changed", phone=req.phone, agent_id=req.agent_id)
+    return {"status": "ok", "agent_id": req.agent_id}
+
+
 @router.get("/{phone}")
 async def get_conversation(phone: str):
     db = await get_db()

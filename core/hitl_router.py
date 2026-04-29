@@ -39,15 +39,25 @@ class HITLRouter:
 
     async def process_inbound_message(self, phone: str, text: str):
         try:
+            db = await get_db()
+            conv = await db.get_conversation(phone)
+            agent_id = conv.agent_id if conv else None
+
             sentiment_result = await sentiment_analyzer.analyze(text)
 
-            response_text, llm_escalate = await inference_engine.generate(text)
+            history_rows = await db.get_messages(phone, limit=20)
+            history = []
+            for msg in history_rows:
+                role = "user" if msg.direction == "inbound" else "assistant"
+                history.append({"role": role, "content": msg.text or ""})
+
+            response_text, llm_escalate = await inference_engine.generate(
+                text, history=history, agent_id=agent_id
+            )
 
             should_escalate, reason = await self.should_escalate(
                 sentiment_result, text, llm_escalate
             )
-
-            db = await get_db()
 
             if should_escalate:
                 await db.execute_transaction([

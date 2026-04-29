@@ -3,6 +3,19 @@ from typing import Optional
 
 
 @dataclass
+class Agent:
+    id: Optional[int] = None
+    name: str = ""
+    description: str = ""
+    system_prompt: str = ""
+    escalation_marker: str = "ESCALATE_TO_HUMAN"
+    fallback_responses: str = "{}"
+    is_active: int = 1
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+@dataclass
 class Conversation:
     phone: str
     contact_name: Optional[str] = None
@@ -12,6 +25,7 @@ class Conversation:
     unread_count: int = 0
     sentiment_score: Optional[float] = None
     confidence: Optional[float] = None
+    agent_id: Optional[int] = 1
     created_at: Optional[str] = None
 
 
@@ -40,7 +54,23 @@ class EscalationEvent:
     created_at: Optional[str] = None
 
 
-def row_to_conversation(row) -> Conversation:
+def row_to_agent(row) -> Optional[Agent]:
+    if row is None:
+        return None
+    return Agent(
+        id=row["id"],
+        name=row["name"],
+        description=row["description"],
+        system_prompt=row["system_prompt"],
+        escalation_marker=row["escalation_marker"],
+        fallback_responses=row["fallback_responses"],
+        is_active=row["is_active"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def row_to_conversation(row) -> Optional[Conversation]:
     if row is None:
         return None
     return Conversation(
@@ -52,11 +82,12 @@ def row_to_conversation(row) -> Conversation:
         unread_count=row["unread_count"],
         sentiment_score=row["sentiment_score"],
         confidence=row["confidence"],
+        agent_id=row["agent_id"],
         created_at=row["created_at"],
     )
 
 
-def row_to_message(row) -> Message:
+def row_to_message(row) -> Optional[Message]:
     if row is None:
         return None
     return Message(

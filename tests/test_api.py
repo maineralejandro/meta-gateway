@@ -39,6 +39,10 @@ async def setup_test_db():
     global_db._conn.row_factory = aiosqlite.Row
     await global_db._conn.execute("PRAGMA journal_mode=WAL")
     await global_db._conn.execute("PRAGMA foreign_keys=ON")
+    await global_db._conn.execute(
+        "INSERT INTO agents (id, name, system_prompt, is_active) VALUES (1, 'Default', '...', 1)"
+    )
+    await global_db._conn.commit()
 
     yield
 
@@ -111,3 +115,64 @@ async def test_conversations_state_update():
     assert res.status_code == 200
     data = res.json()
     assert data["new_state"] == "HUMAN_ONLY"
+
+
+@pytest.mark.asyncio
+async def test_agents_crud():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Create Agent
+        res = await client.post(
+            "/api/agents",
+            json={
+                "name": "Test Agent",
+                "system_prompt": "You are a test agent.",
+                "fallback_responses": '{"default": "test fallback"}'
+            },
+            headers={**AUTH_HEADERS, "Content-Type": "application/json"},
+        )
+        assert res.status_code == 200
+        agent_id = res.json()["id"]
+
+        # 2. Get List
+        res = await client.get("/api/agents", headers=AUTH_HEADERS)
+        assert res.status_code == 200
+        assert len(res.json()) >= 1
+
+        # 3. Update
+        res = await client.put(
+            f"/api/agents/{agent_id}",
+            json={"description": "Updated description"},
+            headers={**AUTH_HEADERS, "Content-Type": "application/json"},
+        )
+        assert res.status_code == 200
+        assert res.json()["description"] == "Updated description"
+
+        # 4. Activate
+        res = await client.post(
+            f"/api/agents/{agent_id}/activate",
+            headers=AUTH_HEADERS
+        )
+        assert res.status_code == 200
+        assert res.json()["status"] == "success"
+
+@pytest.mark.asyncio
+async def test_conversation_change_agent():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Create an agent first
+        res = await client.post(
+            "/api/agents",
+            json={"name": "A2", "system_prompt": "P2"},
+            headers={**AUTH_HEADERS, "Content-Type": "application/json"},
+        )
+        agent_id = res.json()["id"]
+
+        # Change agent of a conversation
+        res = await client.post(
+            "/api/conversations/agent",
+            json={"phone": "+5691234", "agent_id": agent_id},
+            headers={**AUTH_HEADERS, "Content-Type": "application/json"},
+        )
+        assert res.status_code == 200
+        assert res.json()["agent_id"] == agent_id

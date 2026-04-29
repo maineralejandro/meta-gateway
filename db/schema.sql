@@ -1,3 +1,15 @@
+CREATE TABLE IF NOT EXISTS agents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    system_prompt TEXT NOT NULL,
+    escalation_marker TEXT NOT NULL DEFAULT 'ESCALATE_TO_HUMAN',
+    fallback_responses TEXT NOT NULL DEFAULT '{}',
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS conversations (
     phone TEXT PRIMARY KEY,
     contact_name TEXT,
@@ -7,7 +19,9 @@ CREATE TABLE IF NOT EXISTS conversations (
     unread_count INTEGER DEFAULT 0,
     sentiment_score REAL,
     confidence REAL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    agent_id INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (agent_id) REFERENCES agents(id)
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -38,3 +52,4 @@ CREATE TABLE IF NOT EXISTS escalation_events (
 CREATE INDEX IF NOT EXISTS idx_messages_phone ON messages(phone, created_at);
 CREATE INDEX IF NOT EXISTS idx_conversations_state ON conversations(state);
 CREATE INDEX IF NOT EXISTS idx_escalation_phone ON escalation_events(phone);
+CREATE INDEX IF NOT EXISTS idx_agents_is_active ON agents(is_active);

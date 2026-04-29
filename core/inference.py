@@ -1,53 +1,24 @@
+import time
+import json
 from openai import AsyncOpenAI
 from core.config import settings
+from db.database import db
+from db.models import Agent
 import structlog
 
 logger = structlog.get_logger()
 
-SYSTEM_PROMPT = """Eres el asistente virtual de un Food Truck chileno. Tu nombre es Hermes.
-
-Vendes: Completos, Chorrillanas, Papas Fritas, Bebidas.
-
-PRECIOS:
-- Completo Normal (carne): $3.700
-- Completo Gigante (carne): $4.800
-- Completo Italiano: $3.700
-- Completo Vienesa: $3.200
-- Completo Vienesa Vegano: $4.000
-- AS (Anticucho Simple) Normal: $3.700
-- AS Gigante: $4.800
-- Chorrillana: $8.900
-- Salchipapas Individual: $2.800
-- Salchipapas Mediana: $5.100
-- Papas Fritas Individual: $2.100
-- Papas Fritas Mediana: $3.700
-- Coca Cola lata: $1.500
-- Coca Cola 1.5 Lts: $3.000
-- Sprite lata: $1.500
-- Fanta lata: $1.500
-- Agua mineral: $1.200
-
-PROMOS:
-1. Promo Vienesa Normal: Vienesa + Papas Ind. + Bebida = $5.300
-2. Promo Vienesa Vegana: Vienesa Vegana + Papas Ind. + Bebida = $6.100
-3. Promo AS Normal: AS + Papas Ind. + Bebida = $6.600
-
-REGLAS:
-- Siempre responde en español chileno, amable y directo.
-- Si el cliente quiere cancelar una orden, responde exactamente: ESCALATE_TO_HUMAN
-- Si el cliente está molesto o quejándose, responde exactamente: ESCALATE_TO_HUMAN
-- Si no entiendes la pregunta o tienes baja confianza, responde exactamente: ESCALATE_TO_HUMAN
-- Para delivery, pide dirección y calcula tarifa.
-- Siempre confirma totales antes de cerrar una orden.
-"""
-
-ESCALATION_MARKER = "ESCALATE_TO_HUMAN"
-
 
 class InferenceEngine:
-    def __init__(self):
+    def __init__(self, agent_id: int | None = None):
         self.client = None
-        self._available = bool(settings.LLM_API_KEY and not settings.LLM_API_KEY.startswith("nvapi-REPLACE"))
+        self._available = bool(
+            settings.LLM_API_KEY and not settings.LLM_API_KEY.startswith("nvapi-REPLACE")
+        )
+        self.agent_id = agent_id
+        self._current_agent: Agent | None = None
+        self._prompt_loaded_at = 0
+        self._cache_ttl = 60  # seconds
 
     def _get_client(self):
         if self.client is None and self._available:
@@ -57,16 +28,51 @@ class InferenceEngine:
             )
         return self.client
 
-    async def generate(self, user_message: str, history: list[dict] | None = None) -> tuple[str, bool]:
+    async def _load_agent(self, force: bool = False) -> Agent | None:
+        now = time.time()
+        if force or not self._current_agent or (now - self._prompt_loaded_at) > self._cache_ttl:
+            logger.info("loading_agent_from_db", agent_id=self.agent_id)
+            agent = await db.get_agent(agent_id=self.agent_id, is_active=True)
+            if agent:
+                self._current_agent = agent
+                self._prompt_loaded_at = now
+            elif not self._current_agent:
+                logger.warning("no_agent_found_in_db")
+        return self._current_agent
+
+    async def generate(
+        self,
+        user_message: str,
+        history: list[dict] | None = None,
+        agent_id: int | None = None,
+    ) -> tuple[str, bool]:
         """
         Returns (response_text, should_escalate)
         """
+        # Overwrite agent_id if provided per call
+        original_agent_id = self.agent_id
+        if agent_id:
+            self.agent_id = agent_id
+            await self._load_agent(force=True)
+
+        agent = await self._load_agent()
+
         if not self._available:
-            return self._fallback_response(user_message), False
+            response = await self._fallback_response(user_message, agent)
+            # Restore agent_id if it was changed
+            self.agent_id = original_agent_id
+            return response, False
 
         try:
             client = self._get_client()
-            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            system_prompt = (
+                agent.system_prompt
+                if agent
+                else "Eres un asistente servicial. Responde de forma clara y directa."
+            )
+            escalation_marker = agent.escalation_marker if agent else "ESCALATE_TO_HUMAN"
+
+            messages = [{"role": "system", "content": system_prompt}]
             if history:
                 messages.extend(history)
             messages.append({"role": "user", "content": user_message})
@@ -79,27 +85,48 @@ class InferenceEngine:
 
             text = response.choices[0].message.content.strip()
 
-            if ESCALATION_MARKER in text:
-                clean = text.replace(ESCALATION_MARKER, "").strip()
-                return clean if clean else "Un momento, te comunico con un atendedor.", True
+            # Restore agent_id if it was changed
+            self.agent_id = original_agent_id
+
+            if escalation_marker in text:
+                clean = text.replace(escalation_marker, "").strip()
+                return (
+                    clean if clean else "Un momento, te comunico con un atendedor.",
+                    True,
+                )
 
             return text, False
 
         except Exception as e:
             logger.error("inference_error", error=str(e))
-            return self._fallback_response(user_message), False
+            response = await self._fallback_response(user_message, agent)
+            # Restore agent_id if it was changed
+            self.agent_id = original_agent_id
+            return response, False
 
-    def _fallback_response(self, text: str) -> str:
+    async def _fallback_response(self, text: str, agent: Agent | None = None) -> str:
+        if not agent:
+            return "Lo siento, el sistema no está disponible en este momento."
+
+        try:
+            fallbacks = json.loads(agent.fallback_responses)
+        except Exception:
+            return "Lo siento, el sistema no está disponible en este momento."
+
         t = text.lower()
         if any(w in t for w in ["precio", "cuanto", "cuesta", "vale"]):
-            return "🌭 Nuestros precios:\nCompletos desde $3.700\nChorrillana $8.900\n¿Te interesa alguna promo?"
+            return fallbacks.get("price", "Consulta de precios no disponible.")
         if any(w in t for w in ["promo", "oferta", "combo"]):
-            return "🌟 SUPER PROMOS:\n1. Vienesa+Papas+Bebida $5.300\n2. Vienesa Vegana $6.100\n3. AS+Papas+Bebida $6.600"
+            return fallbacks.get("promo", "No hay promociones vigentes.")
         if "delivery" in t:
-            return "🛵 Sí hacemos delivery! Danos tu dirección para calcular el costo extra."
+            return fallbacks.get("delivery", "Consulta de delivery no disponible.")
         if any(w in t for w in ["hola", "buenas", "hi"]):
-            return "🌭 ¡Hola! Bienvenido a Food Truck\n¿Qué deseas ordenar? (Completos, Chorrillanas, Papas, Bebidas)"
-        return "🤔 No estoy seguro de tu pregunta. ¿Podrías aclarar?"
+            return fallbacks.get("greeting", "¡Hola! ¿En qué puedo ayudarte?")
+
+        return fallbacks.get("default", "🤔 No estoy seguro de tu pregunta. ¿Podrías aclarar?")
+
+    async def reload(self):
+        await self._load_agent(force=True)
 
 
 inference_engine = InferenceEngine()

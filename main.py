@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from db.database import init_db, close_db
 from core.meta_client import meta_client
 from core.config import settings
-from routers import webhook, conversations, messages, ws
+from routers import webhook, conversations, messages, ws, agents
 
 import structlog
 
@@ -79,6 +79,7 @@ app.add_middleware(
 app.include_router(webhook.router)
 app.include_router(conversations.router)
 app.include_router(messages.router)
+app.include_router(agents.router)
 app.include_router(ws.router)
 
 
