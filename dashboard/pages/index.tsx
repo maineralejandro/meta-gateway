@@ -8,6 +8,7 @@ import StateToggle from '../components/StateToggle'
 import MessageInput from '../components/MessageInput'
 import NotificationBanner from '../components/NotificationBanner'
 import ErrorBanner from '../components/ErrorBanner'
+import AgentEditor from '../components/AgentEditor'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/ws'
@@ -53,6 +54,7 @@ function addError(prev: ErrorNotification[], message: string): ErrorNotification
 }
 
 export default function WhatsAppDashboard() {
+  const [view, setView] = useState<'conversations' | 'agent'>('conversations')
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [selectedPhone, setSelectedPhone] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
@@ -98,6 +100,7 @@ export default function WhatsAppDashboard() {
     setConversations(prev =>
       prev.map(c => c.phone === phone ? { ...c, unread_count: 0 } : c)
     )
+    setView('conversations')
   }, [loadMessages, resetUnread])
 
   const updateState = useCallback(async (phone: string, state: string) => {
@@ -241,7 +244,28 @@ export default function WhatsAppDashboard() {
   const selectedConversation = conversations.find(c => c.phone === selectedPhone)
 
   return (
-    <div className="h-screen flex flex-col relative overflow-hidden">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-gray-950 text-white">
+      {/* Navigation Bar */}
+      <nav className="h-14 border-b border-gray-800 bg-gray-900 flex items-center px-6 justify-between flex-shrink-0 z-20">
+        <div className="flex items-center gap-8">
+          <div className="text-emerald-500 font-bold text-xl tracking-tight">HERMES</div>
+          <div className="flex gap-4">
+            <button 
+              onClick={() => setView('conversations')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${view === 'conversations' ? 'bg-gray-800 text-emerald-400' : 'text-gray-400 hover:text-gray-200'}`}
+            >
+              Conversaciones
+            </button>
+            <button 
+              onClick={() => setView('agent')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${view === 'agent' ? 'bg-gray-800 text-emerald-400' : 'text-gray-400 hover:text-gray-200'}`}
+            >
+              Gestión de Agente
+            </button>
+          </div>
+        </div>
+      </nav>
+
       <NotificationBanner
         notifications={notifications}
         onDismiss={id => setNotifications(prev => prev.filter(n => n.id !== id))}
@@ -253,66 +277,93 @@ export default function WhatsAppDashboard() {
       />
 
       <div className="flex-1 flex min-h-0">
-        <div className="w-80 border-r border-gray-700 bg-gray-900 flex-shrink-0 overflow-y-auto">
-          <ConversationList
-            conversations={conversations}
-            selectedPhone={selectedPhone}
-            onSelect={handleSelectPhone}
-            filterState={filterState}
-            onFilterChange={setFilterState}
-          />
-        </div>
-
-        <div className="flex-1 flex flex-col bg-gray-950">
-          <ChatPanel
-            messages={messages}
-            phone={selectedPhone}
-            state={selectedConversation?.state || 'BOT_ACTIVE'}
-          />
-          <MessageInput
-            phone={selectedPhone}
-            state={selectedConversation?.state || 'BOT_ACTIVE'}
-            onSend={sendMessage}
-          />
-        </div>
-
-        <div className="w-64 border-l border-gray-700 bg-gray-900 flex-shrink-0 overflow-y-auto">
-          <StateToggle
-            currentState={selectedConversation?.state || 'BOT_ACTIVE'}
-            phone={selectedPhone}
-            onStateChange={updateState}
-          />
-
-          {selectedConversation && (
-            <div className="p-4 text-xs text-gray-400 space-y-2">
-              <h3 className="font-semibold text-gray-300">ANÁLISIS</h3>
-              <div className="flex justify-between">
-                <span>Sentimiento</span>
-                <span className={selectedConversation.sentiment_score != null
-                  ? (selectedConversation.sentiment_score < 0.3 ? 'text-red-400' :
-                     selectedConversation.sentiment_score < 0.6 ? 'text-yellow-400' : 'text-green-400')
-                  : 'text-gray-500'
-                }>
-                  {selectedConversation.sentiment_score?.toFixed(2) ?? '—'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>Confianza</span>
-                <span className={selectedConversation.confidence != null
-                  ? (selectedConversation.confidence < 0.7 ? 'text-red-400' : 'text-green-400')
-                  : 'text-gray-500'
-                }>
-                  {selectedConversation.confidence?.toFixed(2) ?? '—'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>Sin leer</span>
-                <span>{selectedConversation.unread_count}</span>
-              </div>
+        {view === 'conversations' ? (
+          <>
+            <div className="w-80 border-r border-gray-800 bg-gray-900 flex-shrink-0 overflow-y-auto custom-scrollbar">
+              <ConversationList
+                conversations={conversations}
+                selectedPhone={selectedPhone}
+                onSelect={handleSelectPhone}
+                filterState={filterState}
+                onFilterChange={setFilterState}
+              />
             </div>
-          )}
-        </div>
+
+            <div className="flex-1 flex flex-col bg-gray-950 min-h-0">
+              <ChatPanel
+                messages={messages}
+                phone={selectedPhone}
+                state={selectedConversation?.state || 'BOT_ACTIVE'}
+              />
+              <MessageInput
+                phone={selectedPhone}
+                state={selectedConversation?.state || 'BOT_ACTIVE'}
+                onSend={sendMessage}
+              />
+            </div>
+
+            <div className="w-64 border-l border-gray-800 bg-gray-900 flex-shrink-0 overflow-y-auto custom-scrollbar">
+              <StateToggle
+                currentState={selectedConversation?.state || 'BOT_ACTIVE'}
+                phone={selectedPhone}
+                onStateChange={updateState}
+              />
+
+              {selectedConversation && (
+                <div className="p-4 text-xs text-gray-400 space-y-4">
+                  <h3 className="font-semibold text-gray-500 uppercase tracking-wider">Análisis en tiempo real</h3>
+                  <div className="bg-gray-800/50 p-3 rounded-xl border border-gray-700 space-y-2">
+                    <div className="flex justify-between">
+                      <span>Sentimiento</span>
+                      <span className={selectedConversation.sentiment_score != null
+                        ? (selectedConversation.sentiment_score < 0.3 ? 'text-red-400' :
+                           selectedConversation.sentiment_score < 0.6 ? 'text-yellow-400' : 'text-emerald-400')
+                        : 'text-gray-500'
+                      }>
+                        {selectedConversation.sentiment_score?.toFixed(2) ?? '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Confianza bot</span>
+                      <span className={selectedConversation.confidence != null
+                        ? (selectedConversation.confidence < 0.7 ? 'text-red-400' : 'text-emerald-400')
+                        : 'text-gray-500'
+                      }>
+                        {selectedConversation.confidence?.toFixed(2) ?? '—'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex justify-between px-1">
+                    <span>Mensajes sin leer</span>
+                    <span className="bg-emerald-600 text-white px-1.5 py-0.5 rounded text-[10px] font-bold">
+                      {selectedConversation.unread_count}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="flex-1 h-full">
+            <AgentEditor />
+          </div>
+        )}
       </div>
+      <style jsx global>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #1f2937;
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #374151;
+        }
+      `}</style>
     </div>
   )
 }

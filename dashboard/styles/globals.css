@@ -2,8 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body {
-  @apply bg-gray-950 text-white;
+html, body, #__next {
+  @apply bg-gray-950 text-white overflow-hidden h-full m-0 p-0;
 }
 
 ::-webkit-scrollbar {

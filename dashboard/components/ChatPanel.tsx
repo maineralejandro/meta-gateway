@@ -31,14 +31,14 @@ export default function ChatPanel({ messages, phone, state }: Props) {
 
   if (!phone) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500">
+      <div className="flex flex-1 items-center justify-center min-h-0 text-gray-500">
         Selecciona una conversación
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       <div className="p-3 border-b border-gray-700 flex items-center justify-between">
         <div>
           <h3 className="font-mono font-bold">{phone}</h3>
