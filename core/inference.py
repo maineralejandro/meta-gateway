@@ -4,6 +4,7 @@ from openai import AsyncOpenAI
 from core.config import settings
 from db.database import db
 from db.models import Agent
+from core.security import sanitize_llm_output
 import structlog
 
 logger = structlog.get_logger()
@@ -88,6 +89,8 @@ class InferenceEngine:
             # Restore agent_id if it was changed
             self.agent_id = original_agent_id
 
+            text = sanitize_llm_output(text)
+
             if escalation_marker in text:
                 clean = text.replace(escalation_marker, "").strip()
                 return (
@@ -123,7 +126,8 @@ class InferenceEngine:
         if any(w in t for w in ["hola", "buenas", "hi"]):
             return fallbacks.get("greeting", "¡Hola! ¿En qué puedo ayudarte?")
 
-        return fallbacks.get("default", "🤔 No estoy seguro de tu pregunta. ¿Podrías aclarar?")
+        response = fallbacks.get("default", "🤔 No estoy seguro de tu pregunta. ¿Podrías aclarar?")
+        return sanitize_llm_output(response)
 
     async def reload(self):
         await self._load_agent(force=True)
