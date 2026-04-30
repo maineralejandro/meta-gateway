@@ -83,10 +83,11 @@ class Database:
         )
         return [row_to_conversation(r) for r in rows]
 
-    async def get_messages(self, phone: str, limit: int = 100) -> list[Message]:
+    async def get_messages(self, phone: str, limit: int = 100, desc: bool = False) -> list[Message]:
+        order = "DESC" if desc else "ASC"
         rows = await self.fetchall(
-            """SELECT id, phone, direction, source, text, media_type, media_url, meta_message_id, session_id, created_at
-               FROM messages WHERE phone=? ORDER BY created_at ASC LIMIT ?""",
+            f"""SELECT id, phone, direction, source, text, media_type, media_url, meta_message_id, session_id, created_at
+            FROM messages WHERE phone=? ORDER BY created_at {order} LIMIT ?""",
             (phone, limit),
         )
         return [row_to_message(r) for r in rows]
