@@ -27,12 +27,18 @@ async def send_message(req: SendMessageRequest):
     result = await meta_client.send_text(req.phone, req.message)
 
     db = await get_db()
+    conv = await db.get_conversation(req.phone)
+    session_id = conv.current_session_id if conv else None
+
     await db.execute_transaction([
-        ("INSERT INTO messages (phone, direction, source, text) VALUES (?, 'outbound', 'human', ?)",
-         (req.phone, req.message)),
+        ("INSERT INTO messages (phone, direction, source, text, session_id) VALUES (?, 'outbound', 'human', ?, ?)",
+         (req.phone, req.message, session_id)),
         ("UPDATE conversations SET last_message_at=CURRENT_TIMESTAMP WHERE phone=?",
          (req.phone,)),
     ])
+
+    if session_id:
+        await db.increment_session_message_count(session_id)
 
     await manager.send_to_all({
         "type": "human-sent",
@@ -46,3 +52,19 @@ async def send_message(req: SendMessageRequest):
     status = "ok" if meta_ok else "meta_error"
     logger.info("human_message_sent", phone=req.phone, meta_ok=meta_ok)
     return {"status": status, "meta_response": result}
+
+
+@router.get("/{phone}/decisions")
+async def get_decisions(phone: str, limit: int = 50):
+    db = await get_db()
+    decisions = await db.get_decisions(phone, limit)
+    return [asdict(d) for d in decisions]
+
+
+@router.get("/{phone}/decisions/{message_id}")
+async def get_decision_for_message(phone: str, message_id: int):
+    db = await get_db()
+    decision = await db.get_decision_for_message(message_id)
+    if decision is None:
+        return {"error": "not_found"}
+    return asdict(decision)

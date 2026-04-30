@@ -11,6 +11,10 @@ logger = structlog.get_logger()
 router = APIRouter()
 
 from core.hitl_router import process_inbound_message
+from core.sessions import session_manager
+from core.security import verify_meta_signature, rate_limiter
+import json
+from fastapi import Response
 
 
 @router.get("/webhook/whatsapp")
@@ -27,9 +31,12 @@ async def verify_webhook(request: Request):
 
 @router.post("/webhook/whatsapp")
 async def receive_webhook(request: Request):
-    data = await request.json()
-
+    body = await request.body()
+    if not await verify_meta_signature(request, body):
+        return Response(status_code=403)
+    
     try:
+        data = json.loads(body)
         for entry in data.get("entry", []):
             for change in entry.get("changes", []):
                 value = change.get("value", {})
@@ -37,6 +44,11 @@ async def receive_webhook(request: Request):
                 if "messages" in value:
                     msg = value["messages"][0]
                     phone = msg["from"]
+                    
+                    if not rate_limiter.is_allowed(phone):
+                        logger.warning("rate_limit_exceeded", phone=phone)
+                        return {"status": "rate_limited"}
+
                     msg_type = msg.get("type", "text")
                     meta_msg_id = msg.get("id", "")
 
@@ -76,12 +88,15 @@ async def receive_webhook(request: Request):
                     else:
                         state, requires_human = row
 
+                    session_id = await session_manager.get_or_create_session(phone)
+
                     await db.execute_transaction([
-                        ("INSERT INTO messages (phone, direction, source, text, media_type, media_url, meta_message_id) VALUES (?, 'inbound', 'customer', ?, ?, ?, ?)",
-                         (phone, text, media_type, media_url, meta_msg_id)),
+                        ("INSERT INTO messages (phone, direction, source, text, media_type, media_url, meta_message_id, session_id) VALUES (?, 'inbound', 'customer', ?, ?, ?, ?, ?)",
+                         (phone, text, media_type, media_url, meta_msg_id, session_id)),
                         ("UPDATE conversations SET last_message_at=CURRENT_TIMESTAMP, unread_count=unread_count+1 WHERE phone=?",
                          (phone,)),
                     ])
+                    await db.increment_session_message_count(session_id)
 
                     await manager.send_to_all({
                         "type": "new-message",
@@ -111,6 +126,6 @@ async def receive_webhook(request: Request):
 
     except Exception as e:
         logger.error("webhook_error", error=str(e))
-        return {"status": "error", "detail": str(e)}
+        return {"status": "error"}
 
     return {"status": "ok"}

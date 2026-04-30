@@ -15,6 +15,10 @@ class UpdateStateRequest(BaseModel):
     state: str
 
 
+class CloseSessionRequest(BaseModel):
+    summary: str = ""
+
+
 @router.get("")
 async def get_conversations():
     db = await get_db()
@@ -91,3 +95,25 @@ async def reset_unread(phone: str):
         ("UPDATE conversations SET unread_count=0 WHERE phone=?", (phone,)),
     ])
     return {"status": "ok"}
+
+
+@router.post("/{phone}/close-session")
+async def close_session(phone: str, req: CloseSessionRequest):
+    db = await get_db()
+    conv = await db.get_conversation(phone)
+
+    if not conv or not conv.current_session_id:
+        return {"status": "error", "message": "No active session found"}
+
+    session_id = conv.current_session_id
+    await db.close_session(session_id, reason="manual", summary=req.summary)
+
+    # Limpiar la referencia en la conversación
+    await db.execute(
+        "UPDATE conversations SET current_session_id=NULL, state='BOT_ACTIVE', requires_human_review=0 WHERE phone=?",
+        (phone,),
+    )
+    await db.commit()
+
+    logger.info("session_closed_manually", phone=phone, session_id=session_id)
+    return {"status": "ok", "session_id": session_id}
