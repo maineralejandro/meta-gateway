@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from db.database import db
+from core.order_state import order_state
 import structlog
 from typing import Optional
 
@@ -31,22 +32,23 @@ class SessionManager:
                     last_msg_time = datetime.strptime(last_msg_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
                 else:
                     last_msg_time = datetime.fromisoformat(last_msg_str.replace("Z", "+00:00"))
-                
+
                 elapsed = datetime.now(timezone.utc) - last_msg_time
-                
+
                 if elapsed > timedelta(hours=SESSION_TIMEOUT_HOURS):
                     # Cerrar sesión vieja
                     await db.close_session(
                         conv.current_session_id,
                         reason='timeout',
                     )
+                    order_state.clear(phone)
                     logger.info(
                         "session_expired",
                         phone=phone,
                         old_session=conv.current_session_id,
                         hours_inactive=elapsed.total_seconds() / 3600,
                     )
-                    
+
                     # Resetear estado a BOT_ACTIVE si estaba escalado por inactividad
                     if conv.state != "BOT_ACTIVE":
                         await db.execute(
@@ -54,7 +56,7 @@ class SessionManager:
                             (phone,),
                         )
                         await db.commit()
-                        
+
                     return await db.create_session(phone)
             except Exception as e:
                 logger.error("session_timeout_check_error", error=str(e), phone=phone)

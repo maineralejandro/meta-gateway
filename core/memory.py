@@ -2,12 +2,13 @@ import json
 import asyncio
 from db.database import db
 from core.config import settings
+from core.order_state import order_state
 from openai import AsyncOpenAI
 import structlog
 
 logger = structlog.get_logger()
 
-WINDOW_SIZE = 8           # Mensajes recientes que van completos al LLM
+WINDOW_SIZE = 16 # Mensajes recientes que van completos al LLM
 SUMMARIZE_THRESHOLD = 15  # Cada cuántos mensajes nuevos se genera resumen
 
 SUMMARY_PROMPT = """Eres un asistente de gestión de memoria. Actualiza el resumen de esta conversación de WhatsApp.
@@ -45,10 +46,11 @@ class MemoryManager:
             )
         return self._client
 
-    async def build_context(self, phone: str) -> list[dict]:
+    async def build_context(self, phone: str, current_message: str | None = None) -> list[dict]:
         """Construye la lista de mensajes para el LLM: resumen + ventana reciente."""
         memory = await db.get_memory(phone)
-        recent_msgs = await db.get_messages(phone, limit=WINDOW_SIZE)
+        recent_msgs = await db.get_messages(phone, limit=WINDOW_SIZE, desc=True)
+        recent_msgs = list(reversed(recent_msgs))
 
         context = []
 
@@ -59,13 +61,20 @@ class MemoryManager:
                 summary_text += f"\nDatos clave del cliente: {memory.key_facts}"
             context.append({"role": "system", "content": summary_text})
 
+        # 1b. Inyectar estado del pedido si existe
+        order_context = order_state.format_for_context(phone)
+        if order_context:
+            context.append({"role": "system", "content": order_context})
+
         # 2. Agregar mensajes recientes (filtrar media sin texto útil)
+        # Excluir el mensaje actual (ya se inyecta en inference.py) para evitar duplicación
         for msg in recent_msgs:
+            if current_message and msg.direction == "inbound" and msg.text == current_message:
+                continue
             if msg.text and not msg.text.startswith("["):
                 role = "user" if msg.direction == "inbound" else "assistant"
                 context.append({"role": role, "content": msg.text})
             elif msg.text and msg.text.startswith("[location]"):
-                # Ubicaciones sí tienen valor semántico
                 context.append({"role": "user", "content": msg.text})
 
         return context
