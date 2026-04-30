@@ -2,8 +2,12 @@ from db.database import get_db
 from core.meta_client import meta_client
 from core.inference import inference_engine
 from core.sentiment import sentiment_analyzer
+from db.models import AgentDecision
 from routers.ws import manager
 import structlog
+import asyncio
+from core.memory import memory_manager
+from core.security import sanitize_llm_output
 
 logger = structlog.get_logger()
 
@@ -37,6 +41,23 @@ class HITLRouter:
 
         return False, ""
 
+    async def _save_decision(
+        self, db, message_id: int | None, phone: str, decision_data: dict
+    ) -> AgentDecision:
+        decision = AgentDecision(
+            message_id=message_id,
+            phone=phone,
+            sentiment=decision_data["sentiment"],
+            sentiment_score=decision_data["sentiment_score"],
+            confidence=decision_data["confidence"],
+            llm_escalate=1 if decision_data["llm_escalate"] else 0,
+            escalate_reason=decision_data.get("escalate_reason"),
+            history_count=decision_data["history_count"],
+            agent_name=decision_data["agent_name"],
+        )
+        await db.insert_agent_decision(decision)
+        return decision
+
     async def process_inbound_message(self, phone: str, text: str):
         try:
             db = await get_db()
@@ -45,11 +66,7 @@ class HITLRouter:
 
             sentiment_result = await sentiment_analyzer.analyze(text)
 
-            history_rows = await db.get_messages(phone, limit=20)
-            history = []
-            for msg in history_rows:
-                role = "user" if msg.direction == "inbound" else "assistant"
-                history.append({"role": role, "content": msg.text or ""})
+            history = await memory_manager.build_context(phone)
 
             response_text, llm_escalate = await inference_engine.generate(
                 text, history=history, agent_id=agent_id
@@ -58,6 +75,20 @@ class HITLRouter:
             should_escalate, reason = await self.should_escalate(
                 sentiment_result, text, llm_escalate
             )
+
+            agent_name = ""
+            if inference_engine._current_agent:
+                agent_name = inference_engine._current_agent.name
+
+            decision_data = {
+                "sentiment": sentiment_result.get("sentiment", "neutral"),
+                "sentiment_score": sentiment_result.get("score", 0.5),
+                "confidence": sentiment_result.get("confidence", 0.5),
+                "llm_escalate": llm_escalate,
+                "escalate_reason": reason if should_escalate else None,
+                "history_count": len(history),
+                "agent_name": agent_name,
+            }
 
             if should_escalate:
                 await db.execute_transaction([
@@ -71,16 +102,25 @@ class HITLRouter:
                     phone,
                     "Un momento, te comunico con un atendedor. 🙏",
                 )
-                await db.execute_transaction([
-                    ("INSERT INTO messages (phone, direction, source, text) VALUES (?, 'outbound', 'bot', ?)",
-                     (phone, "Un momento, te comunico con un atendedor. 🙏")),
-                ])
+
+                conn = await db._get_conn()
+                session_id = conv.current_session_id if conv else None
+                cursor = await conn.execute(
+                    "INSERT INTO messages (phone, direction, source, text, session_id) VALUES (?, 'outbound', 'bot', ?, ?)",
+                    (phone, "Un momento, te comunico con un atendedor. 🙏", session_id),
+                )
+                await conn.commit()
+                message_id = cursor.lastrowid
+
+                await self._save_decision(db, message_id, phone, decision_data)
+                decision_data["message_id"] = message_id
 
                 await manager.send_to_all({
                     "type": "escalated",
                     "phone": phone,
                     "reason": reason,
                     "sentiment": sentiment_result,
+                    "decision": decision_data,
                 })
 
                 logger.warning("conversation_escalated", phone=phone, reason=reason)
@@ -91,11 +131,20 @@ class HITLRouter:
                  (sentiment_result["score"], sentiment_result["confidence"], phone)),
             ])
 
+            response_text = sanitize_llm_output(response_text)
             await meta_client.send_text(phone, response_text)
-            await db.execute_transaction([
-                ("INSERT INTO messages (phone, direction, source, text) VALUES (?, 'outbound', 'bot', ?)",
-                 (phone, response_text)),
-            ])
+
+            conn = await db._get_conn()
+            session_id = conv.current_session_id if conv else None
+            cursor = await conn.execute(
+                "INSERT INTO messages (phone, direction, source, text, session_id) VALUES (?, 'outbound', 'bot', ?, ?)",
+                (phone, response_text, session_id),
+            )
+            await conn.commit()
+            message_id = cursor.lastrowid
+
+            await self._save_decision(db, message_id, phone, decision_data)
+            decision_data["message_id"] = message_id
 
             await manager.send_to_all({
                 "type": "bot-replied",
@@ -103,9 +152,14 @@ class HITLRouter:
                 "response": response_text,
                 "direction": "outbound",
                 "source": "bot",
+                "message_id": message_id,
+                "decision": decision_data,
             })
 
             logger.info("bot_replied", phone=phone)
+
+            # Disparar resumen en background (no bloquea la respuesta)
+            asyncio.create_task(memory_manager.maybe_summarize(phone))
 
         except Exception as e:
             logger.error("process_message_error", phone=phone, error=str(e))

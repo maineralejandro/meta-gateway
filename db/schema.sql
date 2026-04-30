@@ -20,8 +20,10 @@ CREATE TABLE IF NOT EXISTS conversations (
     sentiment_score REAL,
     confidence REAL,
     agent_id INTEGER DEFAULT 1,
+    current_session_id TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (agent_id) REFERENCES agents(id)
+    FOREIGN KEY (agent_id) REFERENCES agents(id),
+    FOREIGN KEY (current_session_id) REFERENCES sessions(id)
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -33,7 +35,20 @@ CREATE TABLE IF NOT EXISTS messages (
     media_type TEXT,
     media_url TEXT,
     meta_message_id TEXT,
+    session_id TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (phone) REFERENCES conversations(phone),
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    phone TEXT NOT NULL,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ended_at TIMESTAMP,
+    end_reason TEXT,
+    summary TEXT,
+    message_count INTEGER DEFAULT 0,
     FOREIGN KEY (phone) REFERENCES conversations(phone)
 );
 
@@ -49,7 +64,35 @@ CREATE TABLE IF NOT EXISTS escalation_events (
     FOREIGN KEY (phone) REFERENCES conversations(phone)
 );
 
+CREATE TABLE IF NOT EXISTS conversation_memory (
+    phone TEXT PRIMARY KEY,
+    summary TEXT NOT NULL DEFAULT '',
+    key_facts TEXT NOT NULL DEFAULT '[]',
+    total_messages_summarized INTEGER DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (phone) REFERENCES conversations(phone)
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_phone ON messages(phone, created_at);
 CREATE INDEX IF NOT EXISTS idx_conversations_state ON conversations(state);
 CREATE INDEX IF NOT EXISTS idx_escalation_phone ON escalation_events(phone);
 CREATE INDEX IF NOT EXISTS idx_agents_is_active ON agents(is_active);
+CREATE INDEX IF NOT EXISTS idx_memory_phone ON conversation_memory(phone);
+CREATE INDEX IF NOT EXISTS idx_sessions_phone ON sessions(phone, started_at);
+
+CREATE TABLE IF NOT EXISTS agent_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER REFERENCES messages(id),
+    phone TEXT NOT NULL,
+    sentiment TEXT NOT NULL DEFAULT 'neutral',
+    sentiment_score REAL DEFAULT 0.5,
+    confidence REAL DEFAULT 0.5,
+    llm_escalate INTEGER DEFAULT 0,
+    escalate_reason TEXT,
+    history_count INTEGER DEFAULT 0,
+    agent_name TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_decisions_message ON agent_decisions(message_id);
+CREATE INDEX IF NOT EXISTS idx_decisions_phone ON agent_decisions(phone);

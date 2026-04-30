@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     WHATSAPP_PHONE_NUMBER_ID: str = ""
     WHATSAPP_ACCESS_TOKEN: str = ""
     WHATSAPP_VERIFY_TOKEN: str = ""
+    META_APP_SECRET: str = ""
 
     LLM_PROVIDER: str = "nvidia"
     LLM_MODEL: str = "meta/llama-3.1-70b-instruct"
