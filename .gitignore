@@ -38,3 +38,9 @@ desktop.ini
 
 # Orphaned files
 =1.0.0
+
+# Temporary & Scratch
+models.json
+full_models_raw.json
+scratch/
+tests/data/
