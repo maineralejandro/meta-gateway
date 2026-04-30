@@ -9,6 +9,7 @@ from db.models import (
     Conversation,
     ConversationMemory,
     Message,
+    Session,
     row_to_agent,
     row_to_agent_decision,
     row_to_conversation,
@@ -237,7 +238,7 @@ class Database:
         await conn.commit()
         return session_id
 
-    async def get_active_session(self, phone: str) -> Optional[Session]:
+    async def get_active_session(self, phone: str) -> Session | None:
         row = await self.fetchone(
             "SELECT * FROM sessions WHERE phone=? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
             (phone,),
@@ -270,11 +271,9 @@ db = Database()
 
 
 async def init_db():
-    schema = SCHEMA_PATH.read_text()
+    from db.migrator import run_migrations
     os.makedirs(settings.DB_DIR, exist_ok=True)
-    sync_conn = sqlite3.connect(settings.DB_PATH)
-    sync_conn.executescript(schema)
-    sync_conn.close()
+    run_migrations(settings.DB_PATH)
     await db._get_conn()
 
 
