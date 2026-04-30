@@ -49,6 +49,20 @@ interface ErrorNotification {
   timestamp: number
 }
 
+interface AgentDecision {
+  id: number
+  message_id: number | null
+  phone: string
+  sentiment: string
+  sentiment_score: number
+  confidence: number
+  llm_escalate: number
+  escalate_reason: string | null
+  history_count: number
+  agent_name: string
+  created_at: string | null
+}
+
 function addError(prev: ErrorNotification[], message: string): ErrorNotification[] {
   return [{ id: `err-${Date.now()}`, message, timestamp: Date.now() }, ...prev].slice(0, 3)
 }
@@ -61,6 +75,8 @@ export default function WhatsAppDashboard() {
   const [notifications, setNotifications] = useState<WSNotification[]>([])
   const [errors, setErrors] = useState<ErrorNotification[]>([])
   const [filterState, setFilterState] = useState<string | null>(null)
+  const [decisions, setDecisions] = useState<AgentDecision[]>([])
+  const [inspectedMessageId, setInspectedMessageId] = useState<number | null>(null)
 
   const loadConversations = useCallback(async () => {
     try {
@@ -93,15 +109,28 @@ export default function WhatsAppDashboard() {
     } catch {}
   }, [])
 
+  const loadDecisions = useCallback(async (phone: string) => {
+    try {
+      const res = await authFetch(`${API_URL}/api/messages/${phone}/decisions`)
+      if (!res.ok) throw new Error(`Decisions: ${res.status}`)
+      const data = await res.json()
+      setDecisions(data)
+    } catch {
+      setDecisions([])
+    }
+  }, [])
+
   const handleSelectPhone = useCallback((phone: string) => {
     setSelectedPhone(phone)
     loadMessages(phone)
     resetUnread(phone)
+    loadDecisions(phone)
+    setInspectedMessageId(null)
     setConversations(prev =>
       prev.map(c => c.phone === phone ? { ...c, unread_count: 0 } : c)
     )
     setView('conversations')
-  }, [loadMessages, resetUnread])
+  }, [loadMessages, resetUnread, loadDecisions])
 
   const updateState = useCallback(async (phone: string, state: string) => {
     try {
@@ -119,6 +148,16 @@ export default function WhatsAppDashboard() {
   }, [loadConversations])
 
   const sendMessage = useCallback(async (phone: string, message: string) => {
+    const tempId = -(Date.now())
+    setMessages(prev => [...prev, {
+      id: tempId,
+      phone,
+      direction: 'outbound',
+      source: 'human',
+      text: message,
+      media_type: null,
+      created_at: new Date().toISOString(),
+    }])
     try {
       const res = await authFetch(`${API_URL}/api/messages/send`, {
         method: 'POST',
@@ -126,37 +165,41 @@ export default function WhatsAppDashboard() {
         body: JSON.stringify({ phone, message }),
       })
       if (!res.ok) throw new Error(`Send message: ${res.status} ${res.statusText}`)
-      loadMessages(phone)
     } catch (e: any) {
       console.error('Failed to send message', e)
       setErrors(prev => addError(prev, e?.message || 'Error enviando mensaje'))
     }
-  }, [loadMessages])
+  }, [])
 
   const wsHandlers = {
-    'new-message': (data: any) => {
-      setConversations(prev => {
-        const existing = prev.find(c => c.phone === data.phone)
-        if (existing) {
-          return prev.map(c =>
-            c.phone === data.phone
-              ? { ...c, unread_count: c.phone === selectedPhone ? 0 : c.unread_count + 1, state: data.state || c.state }
-              : c
-          )
+  'new-message': (data: any) => {
+    setConversations(prev => {
+      const existing = prev.find(c => c.phone === data.phone)
+      if (existing) {
+        return prev.map(c =>
+          c.phone === data.phone
+            ? { ...c, unread_count: c.phone === selectedPhone ? 0 : c.unread_count + 1, state: data.state || c.state }
+            : c
+        )
+      }
+      return [...prev, {
+        phone: data.phone,
+        contact_name: null,
+        state: data.state || 'BOT_ACTIVE',
+        last_message_at: new Date().toISOString(),
+        requires_human_review: 0,
+        unread_count: 1,
+        sentiment_score: null,
+        confidence: null,
+      }]
+    })
+    if (data.phone === selectedPhone) {
+      setMessages(prev => {
+        const last = prev[prev.length - 1]
+        if (last && last.direction === 'inbound' && last.source === 'customer' && last.text === data.message) {
+          return prev
         }
         return [...prev, {
-          phone: data.phone,
-          contact_name: null,
-          state: data.state || 'BOT_ACTIVE',
-          last_message_at: new Date().toISOString(),
-          requires_human_review: 0,
-          unread_count: 1,
-          sentiment_score: null,
-          confidence: null,
-        }]
-      })
-      if (data.phone === selectedPhone) {
-        setMessages(prev => [...prev, {
           id: Date.now(),
           phone: data.phone,
           direction: 'inbound',
@@ -164,26 +207,44 @@ export default function WhatsAppDashboard() {
           text: data.message,
           media_type: null,
           created_at: new Date().toISOString(),
-        }])
-      }
-    },
-    'bot-replied': (data: any) => {
-      if (data.phone === selectedPhone) {
-        setMessages(prev => [...prev, {
-          id: Date.now() + 1,
+        }]
+      })
+    }
+  },
+  'bot-replied': (data: any) => {
+    if (data.phone === selectedPhone) {
+      const newId = data.message_id || Date.now() + 1
+      setMessages(prev => {
+        if (prev.some(m => m.id === newId)) return prev
+        return [...prev, {
+          id: newId,
           phone: data.phone,
           direction: 'outbound',
           source: 'bot',
           text: data.response,
           media_type: null,
           created_at: new Date().toISOString(),
-        }])
+        }]
+      })
+      if (data.decision) {
+        setDecisions(prev => {
+          if (prev.some(d => d.message_id === data.decision.message_id)) return prev
+          return [data.decision, ...prev]
+        })
       }
-      loadConversations()
-    },
-    'human-sent': (data: any) => {
-      if (data.phone === selectedPhone) {
-        setMessages(prev => [...prev, {
+    }
+    loadConversations()
+  },
+  'human-sent': (data: any) => {
+    if (data.phone === selectedPhone) {
+      setMessages(prev => {
+        const tempIdx = prev.findIndex(m => m.id < 0 && m.source === 'human' && m.text === data.message && m.phone === data.phone)
+        if (tempIdx !== -1) {
+          const updated = [...prev]
+          updated[tempIdx] = { ...updated[tempIdx], id: Date.now() + 2 }
+          return updated
+        }
+        return [...prev, {
           id: Date.now() + 2,
           phone: data.phone,
           direction: 'outbound',
@@ -191,31 +252,56 @@ export default function WhatsAppDashboard() {
           text: data.message,
           media_type: null,
           created_at: new Date().toISOString(),
-        }])
-      }
-      loadConversations()
-    },
-    'escalated': (data: any) => {
-      const notif: WSNotification = {
-        id: `${data.phone}-${Date.now()}`,
-        phone: data.phone,
-        reason: data.reason || 'Escalada por sentimiento/confianza',
-        sentiment: data.sentiment,
-        timestamp: Date.now(),
-      }
-      setNotifications(prev => [notif, ...prev].slice(0, 5))
-      setConversations(prev =>
-        prev.map(c =>
-          c.phone === data.phone
-            ? { ...c, state: 'PENDING_APPROVAL', requires_human_review: 1, sentiment_score: data.sentiment?.score ?? c.sentiment_score }
-            : c
-        )
+        }]
+      })
+    }
+    loadConversations()
+  },
+  'escalated': (data: any) => {
+    const notif: WSNotification = {
+      id: `${data.phone}-${Date.now()}`,
+      phone: data.phone,
+      reason: data.reason || 'Escalada por sentimiento/confianza',
+      sentiment: data.sentiment,
+      timestamp: Date.now(),
+    }
+    setNotifications(prev => [notif, ...prev].slice(0, 5))
+    setConversations(prev =>
+      prev.map(c =>
+        c.phone === data.phone
+          ? { ...c, state: 'PENDING_APPROVAL', requires_human_review: 1, sentiment_score: data.sentiment?.score ?? c.sentiment_score }
+          : c
       )
-      if (data.phone === selectedPhone) loadMessages(selectedPhone)
-      setTimeout(() => {
-        setNotifications(prev => prev.filter(n => n.id !== notif.id))
-      }, 15000)
-    },
+    )
+    if (data.phone === selectedPhone) {
+      if (data.decision?.message_id) {
+        setMessages(prev => {
+          if (prev.some(m => m.id === data.decision.message_id)) return prev
+          return [...prev, {
+            id: data.decision.message_id,
+            phone: data.phone,
+            direction: 'outbound',
+            source: 'bot',
+            text: 'Un momento, te comunico con un atendedor. 🙏',
+            media_type: null,
+            created_at: new Date().toISOString(),
+          }]
+        })
+        setDecisions(prev => {
+          if (prev.some(d => d.message_id === data.decision.message_id)) return prev
+          return [data.decision, ...prev]
+        })
+      } else {
+        loadMessages(selectedPhone)
+        if (data.decision) {
+          setDecisions(prev => [data.decision, ...prev])
+        }
+      }
+    }
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== notif.id))
+    }, 15000)
+  },
     'state-changed': (data: any) => {
       setConversations(prev =>
         prev.map(c =>
@@ -225,9 +311,15 @@ export default function WhatsAppDashboard() {
         )
       )
     },
-    'waiting-for-human': (data: any) => {
-      if (data.phone === selectedPhone) loadMessages(selectedPhone)
-    },
+  'waiting-for-human': (data: any) => {
+    setConversations(prev =>
+      prev.map(c =>
+        c.phone === data.phone
+          ? { ...c, state: 'HUMAN_ONLY', requires_human_review: 1 }
+          : c
+      )
+    )
+  },
     'error': (data: any) => {
       console.error('WS error event', data)
     },
@@ -242,6 +334,14 @@ export default function WhatsAppDashboard() {
   }, [loadConversations])
 
   const selectedConversation = conversations.find(c => c.phone === selectedPhone)
+
+  const handleInspectDecision = useCallback((messageId: number) => {
+    setInspectedMessageId(messageId)
+  }, [])
+
+  const inspectedDecision = inspectedMessageId
+    ? decisions.find(d => d.message_id === inspectedMessageId)
+    : null
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-gray-950 text-white">
@@ -290,11 +390,12 @@ export default function WhatsAppDashboard() {
             </div>
 
             <div className="flex-1 flex flex-col bg-gray-950 min-h-0">
-              <ChatPanel
-                messages={messages}
-                phone={selectedPhone}
-                state={selectedConversation?.state || 'BOT_ACTIVE'}
-              />
+            <ChatPanel
+              messages={messages}
+              phone={selectedPhone}
+              state={selectedConversation?.state || 'BOT_ACTIVE'}
+              onInspectDecision={handleInspectDecision}
+            />
               <MessageInput
                 phone={selectedPhone}
                 state={selectedConversation?.state || 'BOT_ACTIVE'}
@@ -302,46 +403,142 @@ export default function WhatsAppDashboard() {
               />
             </div>
 
-            <div className="w-64 border-l border-gray-800 bg-gray-900 flex-shrink-0 overflow-y-auto custom-scrollbar">
-              <StateToggle
-                currentState={selectedConversation?.state || 'BOT_ACTIVE'}
-                phone={selectedPhone}
-                onStateChange={updateState}
-              />
+          <div className="w-72 border-l border-gray-800 bg-gray-900 flex-shrink-0 overflow-y-auto custom-scrollbar">
+            <StateToggle
+              currentState={selectedConversation?.state || 'BOT_ACTIVE'}
+              phone={selectedPhone}
+              onStateChange={updateState}
+            />
 
-              {selectedConversation && (
-                <div className="p-4 text-xs text-gray-400 space-y-4">
-                  <h3 className="font-semibold text-gray-500 uppercase tracking-wider">Análisis en tiempo real</h3>
-                  <div className="bg-gray-800/50 p-3 rounded-xl border border-gray-700 space-y-2">
-                    <div className="flex justify-between">
-                      <span>Sentimiento</span>
-                      <span className={selectedConversation.sentiment_score != null
-                        ? (selectedConversation.sentiment_score < 0.3 ? 'text-red-400' :
-                           selectedConversation.sentiment_score < 0.6 ? 'text-yellow-400' : 'text-emerald-400')
-                        : 'text-gray-500'
-                      }>
-                        {selectedConversation.sentiment_score?.toFixed(2) ?? '—'}
-                      </span>
+            {selectedConversation && (
+              <div className="p-4 text-xs text-gray-400 space-y-4">
+                {inspectedMessageId && inspectedDecision ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setInspectedMessageId(null)}
+                        className="text-blue-400 hover:text-blue-300 text-xs"
+                      >
+                        ← Volver
+                      </button>
+                      <h3 className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Detalle decisión</h3>
                     </div>
-                    <div className="flex justify-between">
-                      <span>Confianza bot</span>
-                      <span className={selectedConversation.confidence != null
-                        ? (selectedConversation.confidence < 0.7 ? 'text-red-400' : 'text-emerald-400')
-                        : 'text-gray-500'
-                      }>
-                        {selectedConversation.confidence?.toFixed(2) ?? '—'}
-                      </span>
+                    <div className="bg-gray-800/50 p-3 rounded-xl border border-gray-700 space-y-2">
+                      <div className="flex justify-between">
+                        <span>Agente</span>
+                        <span className="text-white font-medium">{inspectedDecision.agent_name || '—'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Sentimiento</span>
+                        <span className={
+                          inspectedDecision.sentiment === 'negative' ? 'text-red-400' :
+                          inspectedDecision.sentiment === 'positive' ? 'text-emerald-400' :
+                          'text-yellow-400'
+                        }>{inspectedDecision.sentiment}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Score sentimiento</span>
+                        <span className={inspectedDecision.sentiment_score < 0.3 ? 'text-red-400' : inspectedDecision.sentiment_score < 0.6 ? 'text-yellow-400' : 'text-emerald-400'}>
+                          {inspectedDecision.sentiment_score.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Confianza</span>
+                        <span className={inspectedDecision.confidence < 0.7 ? 'text-red-400' : 'text-emerald-400'}>
+                          {inspectedDecision.confidence.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>LLM escaló</span>
+                        <span className={inspectedDecision.llm_escalate ? 'text-red-400' : 'text-gray-500'}>
+                          {inspectedDecision.llm_escalate ? 'Sí' : 'No'}
+                        </span>
+                      </div>
+                      {inspectedDecision.escalate_reason && (
+                        <div className="pt-1 border-t border-gray-700">
+                          <span className="block text-gray-500 mb-1">Razón escalado</span>
+                          <span className="text-red-300">{inspectedDecision.escalate_reason}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span>Historial msgs</span>
+                        <span className="text-white">{inspectedDecision.history_count}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Msg ID</span>
+                        <span className="text-gray-300 font-mono">{inspectedDecision.message_id}</span>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex justify-between px-1">
-                    <span>Mensajes sin leer</span>
-                    <span className="bg-emerald-600 text-white px-1.5 py-0.5 rounded text-[10px] font-bold">
-                      {selectedConversation.unread_count}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
+                  </>
+                ) : (
+                  <>
+                    <h3 className="font-semibold text-gray-500 uppercase tracking-wider">Decisiones del agente</h3>
+                    {decisions.length === 0 ? (
+                      <p className="text-gray-600 text-[11px]">Sin decisiones registradas</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {decisions.slice(0, 10).map(d => (
+                          <button
+                            key={d.id}
+                            onClick={() => d.message_id && setInspectedMessageId(d.message_id)}
+                            className="w-full text-left bg-gray-800/50 p-2.5 rounded-lg border border-gray-700 hover:border-blue-600/50 transition-all"
+                          >
+                            <div className="flex justify-between items-center mb-1">
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                                d.sentiment === 'negative' ? 'bg-red-900/40 text-red-400' :
+                                d.sentiment === 'positive' ? 'bg-emerald-900/40 text-emerald-400' :
+                                'bg-yellow-900/40 text-yellow-400'
+                              }`}>{d.sentiment}</span>
+                              <span className="text-gray-500 text-[10px]">
+                                {d.created_at ? new Date(d.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : ''}
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-[10px]">
+                              <span className="text-gray-500">conf: <span className={d.confidence < 0.7 ? 'text-red-400' : 'text-emerald-400'}>{d.confidence.toFixed(2)}</span></span>
+                              <span className="text-gray-500">score: <span className={d.sentiment_score < 0.3 ? 'text-red-400' : 'text-emerald-400'}>{d.sentiment_score.toFixed(2)}</span></span>
+                            </div>
+                            {d.escalate_reason && (
+                              <div className="text-[10px] text-red-400 mt-1 truncate">{d.escalate_reason}</div>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="border-t border-gray-700 pt-3 space-y-2">
+                      <h3 className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Resumen conversación</h3>
+                      <div className="bg-gray-800/50 p-3 rounded-xl border border-gray-700 space-y-2">
+                        <div className="flex justify-between">
+                          <span>Sentimiento</span>
+                          <span className={selectedConversation.sentiment_score != null
+                            ? (selectedConversation.sentiment_score < 0.3 ? 'text-red-400' :
+                               selectedConversation.sentiment_score < 0.6 ? 'text-yellow-400' : 'text-emerald-400')
+                            : 'text-gray-500'
+                          }>
+                            {selectedConversation.sentiment_score?.toFixed(2) ?? '—'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Confianza bot</span>
+                          <span className={selectedConversation.confidence != null
+                            ? (selectedConversation.confidence < 0.7 ? 'text-red-400' : 'text-emerald-400')
+                            : 'text-gray-500'
+                          }>
+                            {selectedConversation.confidence?.toFixed(2) ?? '—'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex justify-between px-1">
+                        <span>Mensajes sin leer</span>
+                        <span className="bg-emerald-600 text-white px-1.5 py-0.5 rounded text-[10px] font-bold">
+                          {selectedConversation.unread_count}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
           </>
         ) : (
           <div className="flex-1 h-full">

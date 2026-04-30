@@ -25,9 +25,11 @@ export function useWebSocket(url: string, handlers: Record<string, WSHandler>) {
   const handlersRef = useRef(handlers)
   const retryDelayRef = useRef(MIN_DELAY)
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const mountedRef = useRef(true)
   handlersRef.current = handlers
 
   const connect = useCallback(() => {
+    if (!mountedRef.current) return
     const ws = new WebSocket(url)
     wsRef.current = ws
 
@@ -37,6 +39,7 @@ export function useWebSocket(url: string, handlers: Record<string, WSHandler>) {
     }
 
     ws.onclose = () => {
+      if (!mountedRef.current) return
       const delay = retryDelayRef.current
       console.log(`[WS] Disconnected, reconnecting in ${delay}ms...`)
       retryDelayRef.current = Math.min(delay * BACKOFF_FACTOR, MAX_DELAY)
@@ -57,10 +60,13 @@ export function useWebSocket(url: string, handlers: Record<string, WSHandler>) {
   }, [url])
 
   useEffect(() => {
+    mountedRef.current = true
     connect()
     return () => {
+      mountedRef.current = false
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current)
       wsRef.current?.close()
+      wsRef.current = null
     }
   }, [connect])
 

@@ -14,6 +14,7 @@ interface Props {
   messages: Message[]
   phone: string
   state: string
+  onInspectDecision?: (messageId: number) => void
 }
 
 const SOURCE_STYLE: Record<string, { bubble: string; prefix: string }> = {
@@ -22,7 +23,7 @@ const SOURCE_STYLE: Record<string, { bubble: string; prefix: string }> = {
   human: { bubble: 'bg-green-900/60 text-green-100', prefix: '👤' },
 }
 
-export default function ChatPanel({ messages, phone, state }: Props) {
+export default function ChatPanel({ messages, phone, state, onInspectDecision }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -61,11 +62,18 @@ export default function ChatPanel({ messages, phone, state }: Props) {
           const isCustomer = msg.direction === 'inbound'
           return (
             <div key={msg.id} className={`flex ${isCustomer ? 'justify-start' : 'justify-end'}`}>
-              <div className={`max-w-[75%] rounded-lg px-3 py-2 ${style.bubble}`}>
-                {msg.source !== 'customer' && (
-                  <span className="text-xs opacity-60 block mb-1">{style.prefix} {msg.source}</span>
+              <div className={`max-w-[75%] rounded-lg px-3 py-2 ${style.bubble} ${msg.source === 'bot' && onInspectDecision ? 'cursor-pointer hover:ring-1 hover:ring-blue-500/50 transition-all' : ''}`}
+               onClick={() => msg.source === 'bot' && onInspectDecision && onInspectDecision(msg.id)}
+            >
+            {msg.source !== 'customer' && (
+              <span className="text-xs opacity-60 block mb-1">
+                {style.prefix} {msg.source}
+                {msg.source === 'bot' && onInspectDecision && (
+                  <span className="ml-1 opacity-70" title="Ver decisión del agente">🧠</span>
                 )}
-                <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+              </span>
+            )}
+            <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
                 <span className="text-xs opacity-40 block mt-1 text-right">
                   {new Date(msg.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
                 </span>
