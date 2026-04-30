@@ -46,9 +46,9 @@ async def setup_integration_db():
         await conn.execute("PRAGMA foreign_keys=ON")
         await db.commit()
     
-    # Insert a default agent
+    # Insert a default agent (INSERT OR REPLACE in case seed already created id=1)
     await db.execute(
-        "INSERT INTO agents (id, name, system_prompt, escalation_marker) VALUES (1, 'Hermes Bot', 'Eres un bot de ventas.', 'ESCALATE_TO_HUMAN')"
+        "INSERT OR REPLACE INTO agents (id, name, system_prompt, escalation_marker) VALUES (1, 'Hermes Bot', 'Eres un bot de ventas.', 'ESCALATE_TO_HUMAN')"
     )
     await db.commit()
     

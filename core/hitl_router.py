@@ -2,6 +2,7 @@ from db.database import get_db
 from core.meta_client import meta_client
 from core.inference import inference_engine
 from core.sentiment import sentiment_analyzer
+from core.order_state import order_state
 from db.models import AgentDecision
 from routers.ws import manager
 import structlog
@@ -14,7 +15,7 @@ logger = structlog.get_logger()
 ESCALATION_KEYWORDS = ["cancelar", "cancela", "molesto", "reclamo", "queja", "devolución"]
 
 SENTIMENT_THRESHOLD = 0.3
-CONFIDENCE_THRESHOLD = 0.7
+CONFIDENCE_THRESHOLD = 0.5
 
 
 class HITLRouter:
@@ -28,11 +29,11 @@ class HITLRouter:
         if llm_escalate:
             return True, "llm_requested_escalation"
 
-        if sentiment == "negative" or score < SENTIMENT_THRESHOLD:
+        if sentiment == "negative" and score < SENTIMENT_THRESHOLD:
             return True, f"negative_sentiment(score={score:.2f})"
 
-        if confidence < CONFIDENCE_THRESHOLD:
-            return True, f"low_confidence({confidence:.2f})"
+        if not llm_escalate and confidence < 0.4:
+            return True, f"very_low_confidence({confidence:.2f})"
 
         t = text.lower()
         for kw in ESCALATION_KEYWORDS:
@@ -66,7 +67,7 @@ class HITLRouter:
 
             sentiment_result = await sentiment_analyzer.analyze(text)
 
-            history = await memory_manager.build_context(phone)
+            history = await memory_manager.build_context(phone, current_message=text)
 
             response_text, llm_escalate = await inference_engine.generate(
                 text, history=history, agent_id=agent_id
@@ -131,6 +132,7 @@ class HITLRouter:
                  (sentiment_result["score"], sentiment_result["confidence"], phone)),
             ])
 
+            response_text = order_state.parse_tags(phone, response_text)
             response_text = sanitize_llm_output(response_text)
             await meta_client.send_text(phone, response_text)
 

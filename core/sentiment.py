@@ -90,7 +90,7 @@ class SentimentAnalyzer:
         if is_positive:
             return {"sentiment": "positive", "score": 0.85, "confidence": 0.75}
 
-        return {"sentiment": "neutral", "score": 0.6, "confidence": 0.7}
+        return {"sentiment": "neutral", "score": 0.6, "confidence": 0.8}
 
 
 sentiment_analyzer = SentimentAnalyzer()
