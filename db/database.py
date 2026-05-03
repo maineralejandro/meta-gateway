@@ -316,13 +316,74 @@ class Database:
     async def delete_order(self, phone: str) -> None:
         await self.execute("DELETE FROM orders WHERE phone=?", (phone,))
 
+    async def escalate_conversation(
+        self, phone: str, sentiment_score: float, confidence: float, reason: str
+    ) -> None:
+        await self.execute_transaction([
+            (
+                "UPDATE conversations SET sentiment_score=?, confidence=?, state='PENDING_APPROVAL', requires_human_review=1 WHERE phone=?",
+                (sentiment_score, confidence, phone),
+            ),
+            (
+                "INSERT INTO escalation_events (phone, from_state, to_state, reason, sentiment_score, confidence) VALUES (?, 'BOT_ACTIVE', 'PENDING_APPROVAL', ?, ?, ?)",
+                (phone, reason, sentiment_score, confidence),
+            ),
+        ])
+
+    async def update_conversation_sentiment(
+        self, phone: str, sentiment_score: float, confidence: float
+    ) -> None:
+        await self.execute(
+            "UPDATE conversations SET sentiment_score=?, confidence=? WHERE phone=?",
+            (sentiment_score, confidence, phone),
+        )
+
     async def increment_session_message_count(self, session_id: str) -> None:
         conn = await self._get_conn()
         await conn.execute(
-            "UPDATE sessions SET message_count = message_count + 1 WHERE id=?",
-            (session_id,),
+            "UPDATE sessions SET message_count = message_count + 1 WHERE id=?", (session_id,)
         )
         await conn.commit()
+
+    async def load_menu_items(self) -> list[dict[str, Any]]:
+        rows = await self.fetchall(
+            "SELECT key, name, price, category, is_available, sort_order FROM menu_items ORDER BY sort_order"
+        )
+        return [dict(row) for row in rows]
+
+    async def upsert_menu_item(
+        self, key: str, name: str, price: int, category: str = "general", is_available: bool = True, sort_order: int = 0
+    ) -> None:
+        conn = await self._get_conn()
+        await conn.execute(
+            """INSERT INTO menu_items (key, name, price, category, is_available, sort_order, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET
+            name=excluded.name, price=excluded.price, category=excluded.category,
+            is_available=excluded.is_available, sort_order=excluded.sort_order, updated_at=CURRENT_TIMESTAMP""",
+            (key, name, price, category, int(is_available), sort_order),
+        )
+        await conn.commit()
+
+    async def update_conversation_state(self, phone: str, state: str, requires_human_review: bool = False) -> None:
+        await self.execute(
+            "UPDATE conversations SET state=?, requires_human_review=? WHERE phone=?",
+            (state, int(requires_human_review), phone),
+        )
+        await self.commit()
+
+    async def reset_conversation_session(self, phone: str) -> None:
+        await self.execute(
+            "UPDATE conversations SET current_session_id=NULL, state='BOT_ACTIVE', requires_human_review=0 WHERE phone=?",
+            (phone,),
+        )
+        await self.commit()
+
+    async def set_conversation_agent(self, phone: str, agent_id: int) -> None:
+        await self.execute(
+            "UPDATE conversations SET agent_id=? WHERE phone=?", (agent_id, phone)
+        )
+        await self.commit()
 
     async def close(self) -> None:
         if self._conn:

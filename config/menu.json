@@ -1,0 +1,21 @@
+{
+  "completo_normal": {"name": "Completo Normal (carne)", "price": 3700},
+  "completo_gigante": {"name": "Completo Gigante (carne)", "price": 4800},
+  "completo_italiano": {"name": "Completo Italiano", "price": 3700},
+  "completo_vienesa": {"name": "Completo Vienesa", "price": 3200},
+  "completo_vienesa_gigante": {"name": "Vienesa Gigante Italiana", "price": 3400},
+  "completo_vienesa_vegano": {"name": "Completo Vienesa Vegano", "price": 4000},
+  "completo_vienesa_vegano_gigante": {"name": "Vienesa Vegana Gigante", "price": 4800},
+  "as_normal": {"name": "AS Normal", "price": 3700},
+  "as_gigante": {"name": "AS Gigante", "price": 4800},
+  "chorrillana": {"name": "Chorrillana", "price": 8900},
+  "salchipapas_individual": {"name": "Salchipapas Individual", "price": 2800},
+  "salchipapas_mediana": {"name": "Salchipapas Mediana", "price": 5100},
+  "papas_individual": {"name": "Papas Fritas Individual", "price": 2100},
+  "papas_mediana": {"name": "Papas Fritas Mediana", "price": 3700},
+  "coca_lata": {"name": "Coca Cola lata", "price": 1500},
+  "coca_1_5l": {"name": "Coca Cola 1.5 Lts", "price": 3000},
+  "sprite_lata": {"name": "Sprite lata", "price": 1500},
+  "fanta_lata": {"name": "Fanta lata", "price": 1500},
+  "agua": {"name": "Agua mineral", "price": 1200}
+}

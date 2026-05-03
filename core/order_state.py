@@ -1,12 +1,15 @@
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 import structlog
 
 logger = structlog.get_logger()
 
-MENU_ITEMS = {
+MENU_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "menu.json"
+
+DEFAULT_MENU_ITEMS: dict[str, dict[str, Any]] = {
     "completo_normal": {"name": "Completo Normal (carne)", "price": 3700},
     "completo_gigante": {"name": "Completo Gigante (carne)", "price": 4800},
     "completo_italiano": {"name": "Completo Italiano", "price": 3700},
@@ -28,6 +31,27 @@ MENU_ITEMS = {
     "agua": {"name": "Agua mineral", "price": 1200},
 }
 
+
+def _load_menu_from_file() -> dict[str, dict[str, Any]]:
+    try:
+        with open(MENU_CONFIG_PATH) as f:
+            data = json.load(f)
+        validated: dict[str, dict[str, Any]] = {}
+        for key, item in data.items():
+            if "name" in item and "price" in item:
+                validated[key] = {"name": item["name"], "price": int(item["price"])}
+        if validated:
+            return validated
+        logger.warning("menu_json_empty", path=str(MENU_CONFIG_PATH))
+    except FileNotFoundError:
+        logger.info("menu_json_not_found", path=str(MENU_CONFIG_PATH))
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error("menu_json_parse_error", path=str(MENU_CONFIG_PATH), error=str(e))
+    return DEFAULT_MENU_ITEMS
+
+
+MENU_ITEMS: dict[str, dict[str, Any]] = _load_menu_from_file()
+
 ORDER_TAG_RE = re.compile(r"\[ORDER_ADD:([a-z_0-9]+):(\d+)\]")
 ORDER_CLEAR_RE = re.compile(r"\[ORDER_CLEAR\]")
 ORDER_REMOVE_RE = re.compile(r"\[ORDER_REMOVE:([a-z_0-9]+)(?::(\d+))?\]")
@@ -37,6 +61,24 @@ class OrderState:
     def __init__(self) -> None:
         self._orders: dict[str, dict[str, Any]] = {}
         self._loaded_phones: set[str] = set()
+        self._menu: dict[str, dict[str, Any]] = MENU_ITEMS
+
+    def get_menu(self) -> dict[str, dict[str, Any]]:
+        return dict(self._menu)
+
+    async def reload_menu_from_db(self) -> None:
+        try:
+            from db.database import get_db
+            db = await get_db()
+            rows = await db.load_menu_items()
+            if rows:
+                self._menu = {}
+                for row in rows:
+                    if row["is_available"]:
+                        self._menu[row["key"]] = {"name": row["name"], "price": row["price"]}
+                logger.info("menu_reloaded_from_db", item_count=len(self._menu))
+        except Exception as e:
+            logger.error("menu_reload_error", error=str(e))
 
     async def _ensure_loaded(self, phone: str) -> None:
         if phone in self._loaded_phones:
@@ -52,21 +94,23 @@ class OrderState:
                     self._orders[phone] = {"items": items, "total": total}
                 except (json.JSONDecodeError, TypeError):
                     logger.warning("order_load_corrupt", phone=phone)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("order_load_error", phone=phone, error=str(e))
         self._loaded_phones.add(phone)
 
     async def _persist(self, phone: str) -> None:
+        order = self._orders.get(phone)
         try:
             from db.database import get_db
             db = await get_db()
-            order = self._orders.get(phone)
             if order and order["items"]:
                 await db.save_order(phone, json.dumps(order["items"]), order["total"])
             else:
                 await db.delete_order(phone)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("order_persist_error", phone=phone, error=str(e))
+            self._orders.pop(phone, None)
+            self._loaded_phones.discard(phone)
 
     async def get_order(self, phone: str) -> dict[str, Any]:
         await self._ensure_loaded(phone)
@@ -77,7 +121,7 @@ class OrderState:
         if phone not in self._orders:
             self._orders[phone] = {"items": [], "total": 0}
         order = self._orders[phone]
-        menu_item = MENU_ITEMS.get(item_key)
+        menu_item = self._menu.get(item_key)
         if not menu_item:
             logger.warning("order_add_unknown_item", phone=phone, key=item_key)
             return
@@ -112,14 +156,15 @@ class OrderState:
         await self._persist(phone)
 
     async def clear(self, phone: str) -> None:
-        self._orders.pop(phone, None)
-        self._loaded_phones.discard(phone)
         try:
             from db.database import get_db
             db = await get_db()
             await db.delete_order(phone)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("order_clear_error", phone=phone, error=str(e))
+            return
+        self._orders.pop(phone, None)
+        self._loaded_phones.discard(phone)
 
     def _recalc_total(self, phone: str) -> None:
         order = self._orders.get(phone)
