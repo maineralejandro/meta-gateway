@@ -43,9 +43,19 @@ LLM emits invisible tags that the backend parses to maintain order state:
 - `[ORDER_CLEAR]` — reset entire order
 
 Tags are stripped from the response before sending to the customer.
-Order state is in-memory (`OrderState` class), keyed by phone number.
+Order state is DB-backed with in-memory cache (`OrderState` class), keyed by phone number.
+`_ensure_loaded` lazy-loads from DB on first access per phone; `_persist` writes after each mutation.
+`clear()` does DB delete first, then in-memory cleanup — prevents resurrection on reload.
+`_persist` failure invalidates in-memory cache so next access reloads from DB.
 Order state is injected into LLM context as a system message.
 Order state is cleared on session timeout (4h inactivity).
+
+### Menu Configuration
+
+Menu items are loaded from `config/menu.json` at module import time via `_load_menu_from_file()`.
+If the JSON file is missing or invalid, `DEFAULT_MENU_ITEMS` (hardcoded dict) is used as fallback.
+A `menu_items` DB table (migration 007) supports runtime menu management via `reload_menu_from_db()`.
+The `OrderState` instance uses `self._menu` — initially loaded from JSON, overridable from DB.
 
 ### Memory / Summarization
 
@@ -82,19 +92,49 @@ Migration 005 adds a UNIQUE index on `messages(meta_message_id)`. The webhook ha
 
 `hitl_router.py` maintains `_phone_locks: dict[str, asyncio.Lock]`. Two concurrent messages from the same phone are serialized, preventing interleaving between sentiment analysis and order state mutation.
 
+### Webhook Signature Verification
+
+`core/security.py` logs `"webhook_signature_mismatch"` on HMAC failure — never logs the expected/provided hash values to avoid leaking partial signature data.
+
+### CORS Credentials
+
+`main.py` sets `allow_credentials=False` when `CORS_ORIGINS` contains `*` (wildcard). Only enables `allow_credentials=True` for explicit origin lists. This prevents browser CORS policy violations.
+
+### LLM Client Consolidation
+
+`core/llm_client.py` provides a shared `LLMClient` class with lazy `AsyncOpenAI` init, availability check, configurable retry/backoff/timeout, and `chat_completion()` with `raise last_err from None`. Each module (`inference.py`, `memory.py`, `sentiment.py`) creates its own `LLMClient` instance with appropriate params. `raise last_err from None` avoids circular tracebacks.
+
+### Order State Persistence
+
+- DB-backed with in-memory cache (not in-memory primary)
+- `clear()` does DB delete FIRST → on failure, in-memory preserved (returns early) → on success, pops from `_orders`/`_loaded_phones`
+- `_persist()` failure invalidates in-memory cache (`pop` + `discard`) so next `_ensure_loaded` reloads from DB
+
+### Edit Tool Indentation Pitfall
+
+The edit tool can lose 4 spaces of indentation on multi-line replacements. This has caused syntax errors in:
+- `core/memory.py`: `raw_content` check dedented out of outer `try` block
+- `core/order_state.py`: `parse_tags` body dedented out of method
+- `core/inference.py`: for loop + try block dedented out of outer `try` block
+- `routers/ws.py`: `except Exception` dedented to wrong indent level
+- `test_inference.py`: test function body dedented
+
+**Mitigation**: After multi-line edits, verify with `python3 -c "import ast; ast.parse(open('file').read())"` or check raw byte indentation. For large blocks, prefer writing the entire file.
+
 ## Known Limitations
 
-- Order state is in-memory only — lost on process restart (acceptable for food truck use case)
-- No multi-tenant isolation — single food truck deployment
 - SQLite single-writer limitation — WAL mode helps but heavy concurrent writes may still contend
-- Sentiment LLM call has no retry logic (unlike inference.py) — falls back to heuristic on any error
+- No multi-tenant isolation — single food truck deployment
 - No authentication on webhook GET (verify token is static, no HMAC on GET)
 
 ## Quality Gates (Current Status)
 
 - **Ruff**: 0 findings
-- **Mypy**: 0 errors (26 source files checked)
-- **Tests**: 76 passed, 3 skipped (E2E), 0 warnings
+- **Mypy**: 0 errors (27 source files checked)
+- **Tests**: 228 passed, 3 skipped (E2E), 0 failures
+- **Database migrations**: 8 (000-007)
+- **Menu config**: `config/menu.json` + DB `menu_items` table
+- **No `except Exception: pass`** remaining in source — all have logging
 
 ## Type Annotation Strategy
 
@@ -107,13 +147,3 @@ Migration 005 adds a UNIQUE index on `messages(meta_message_id)`. The webhook ha
 - `str()` cast on `fallbacks.get()` returns to avoid `Returning Any from function declared to return "str"`
 - `ChatCompletion` type annotation on LLM response variable to avoid `str`/`ChatCompletion` union issues
 - `# type: ignore[arg-type]` for OpenAI `messages` param (dict vs strict union type)
-
-## Edit Tool Indentation Pitfall
-
-The edit tool can lose 4 spaces of indentation on multi-line replacements. This has caused syntax errors in:
-- `core/memory.py`: `raw_content` check dedented out of outer `try` block
-- `core/order_state.py`: `parse_tags` body dedented out of method
-- `core/inference.py`: for loop + try block dedented out of outer `try` block
-- `test_inference.py`: test function body dedented
-
-**Mitigation**: After multi-line edits, verify with `python3 -c "import ast; ast.parse(open('file').read())"` or check raw byte indentation. For large blocks, prefer writing the entire file.

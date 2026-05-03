@@ -36,10 +36,6 @@
 - **5.6** Startup validation in `main.py` lifespan — checks required env vars, raises RuntimeError if missing/placeholder
 - **Status**: DONE — 74/74 tests passing
 
-### Agent Operation Files
-- AGENTS.md, .agents/rules/{global,database,testing}.md, llms.txt, CONTEXT.md, ROADMAP.md, DESIGN.md
-- **Status**: DONE
-
 ### Phase 6: Next-Level Production Hardening
 - **6.1** Race condition fixes — `InferenceEngine` no shared mutable `agent_id`, `_get_phone_lock` uses `setdefault`, `Database._get_conn` double-checked locking
 - **6.2** DB hardening — webhook dedup uses plain `INSERT` + catches `IntegrityError`; `execute_transaction` explicit BEGIN/COMMIT/ROLLBACK; pagination on conversations
@@ -55,16 +51,73 @@
 - **6.12** Test FK fix — `test_memory.py` clean_db fixture now nulls `current_session_id` before deleting sessions/conversations
 - **Status**: DONE — 76/76 tests passing
 
+### Phase 7: Security Audit Fixes
+- **7.1** Webhook signature mismatch log no longer leaks `expected`/`provided` hash values — `core/security.py:44` logs only `"webhook_signature_mismatch"`
+- **7.2** CORS `allow_credentials=False` when `CORS_ORIGINS` contains `*` — `main.py`; `True` only for explicit origins
+- **7.3** New tests: `test_signature_mismatch_no_hash_leak`, `test_cors_no_credentials_with_wildcard_origin`
+- **Status**: DONE
+
+### Phase 8: Error Handling Audit
+- **8.1** `core/order_state.py` — 3 `except Exception: pass` → proper logging with `logger.error`
+- **8.2** `routers/conversations.py:93` — HTTP 200 for not-found → `JSONResponse(status_code=404, ...)`
+- **8.3** Expanded `tests/test_order_state.py` to 20+ tests including resurrection and persist-failure scenarios
+- **Status**: DONE
+
+### Phase 9: Sentiment Bug Fix
+- **9.1** `core/sentiment.py` — positive words checked BEFORE negative heuristics; removed duplicate `"excelente"`
+- **9.2** 6 new heuristic tests for positive/negative priority
+- **Status**: DONE
+
+### Phase 10: LLM Client Consolidation
+- **10.1** Created `core/llm_client.py` — shared `LLMClient` class with lazy `AsyncOpenAI` init, availability check, configurable retry/backoff/timeout, `chat_completion()` with `raise last_err from None`
+- **10.2** Rewrote `core/inference.py`, `core/memory.py`, `core/sentiment.py` — all use `self._llm = LLMClient(...)`
+- **10.3** 10 tests in `tests/test_llm_client.py`; updated mocks in all test files
+- **Status**: DONE
+
+### Phase 11: Order Persistence Robustness
+- **11.1** Fixed `clear()` resurrection bug — `clear()` now does `db.delete_order()` FIRST; on DB failure, in-memory state preserved
+- **11.2** Fixed `_persist` failure leaving stale cache — on exception, invalidates in-memory cache (`pop` + `discard`)
+- **11.3** Added `db.escalate_conversation()` and `db.update_conversation_sentiment()` — replaces raw SQL in `hitl_router.py`
+- **11.4** Rewrote `core/hitl_router.py` cleanly — uses new DB methods
+- **11.5** New tests: `test_clear_prevents_resurrection`, `test_persist_failure_invalidates_cache`
+- **Status**: DONE
+
+### Phase 12: Menu Configuration
+- **12.1** Created `config/menu.json` — external JSON config for menu items
+- **12.2** `core/order_state.py` — `MENU_ITEMS` loaded from JSON file via `_load_menu_from_file()` with `DEFAULT_MENU_ITEMS` fallback; added `get_menu()`, `reload_menu_from_db()` methods; instance uses `self._menu`
+- **12.3** Migration `007_menu_items_table.sql` — `menu_items` table with key, name, price, category, is_available, sort_order + seed data
+- **12.4** `db/database.py` — added `load_menu_items()`, `upsert_menu_item()`, `update_conversation_state()`, `reset_conversation_session()`, `set_conversation_agent()`
+- **12.5** 8 new menu config tests + 6 new DB method tests
+- **Status**: DONE
+
+### Phase 13: Cleanup
+- **13.1** Removed `python-dotenv` from `pyproject.toml` and `requirements.txt` (pydantic-settings handles `.env` natively)
+- **13.2** `routers/conversations.py` — replaced raw SQL with `db.set_conversation_agent()`, `db.reset_conversation_session()`
+- **13.3** `core/sessions.py` — replaced raw SQL with `db.update_conversation_state()`
+- **13.4** Updated `db/schema.sql` with `menu_items` table
+- **13.5** Updated migrator test for 7 migrations (001-007)
+- **Status**: DONE
+
+### Phase 14: Silent Error Audit
+- **14.1** `core/inference.py:124` — malformed `fallback_responses` JSON now logs `logger.warning("fallback_json_parse_error", ...)`
+- **14.2** `core/metrics.py:84,97` — metric refresh failures now log `logger.warning("metrics_refresh_failed", ...)`
+- **14.3** `main.py:195` — health check DB failure now logs `logger.warning("health_check_db_failed", ...)`
+- **14.4** `routers/ws.py:32,40` — WS send failures now log `logger.debug("ws_send_all_failed"/"ws_send_one_failed")`
+- **14.5** No remaining `except Exception: pass` in source code — all have logging
+- **Status**: DONE
+
 ## Current State
 
-- **173 tests passing** (up from 76)
-- **89% code coverage** (up from 78%)
-- **0 ruff findings**, **0 mypy errors**
-- 7 database migrations applied (000-006)
+- **228 tests passing**, 3 skipped (E2E)
+- **0 ruff findings**, **0 mypy errors** (27 source files)
+- 8 database migrations (000-007)
 - LLM: `meta/llama-3.3-70b-instruct` via NVIDIA NIM
 - 0 Pydantic deprecation warnings
-- Production-ready features: dedup, retry/backoff on all LLM calls, rate limiting (webhook + API), HMAC validation, startup checks, prometheus metrics, correlation IDs, graceful shutdown, event bus, order persistence
-- 100% coverage modules: `core/events.py`, `core/meta_client.py`, `core/sentiment.py`, `core/task_tracker.py`, `routers/messages.py`
+- All `except Exception` blocks have proper logging — zero silent swallowing
+- Menu: `config/menu.json` + DB `menu_items` table + `OrderState.reload_menu_from_db()`
+- Raw SQL eliminated from `routers/` and `core/` — all through `db/database.py` methods
+- `python-dotenv` removed (pydantic-settings handles `.env` natively)
+- Production-ready features: dedup, retry/backoff on all LLM calls, rate limiting (webhook + API), HMAC validation, startup checks, prometheus metrics, correlation IDs, graceful shutdown, event bus, order persistence, menu config
 
 ## Potential Next Steps (not committed)
 
