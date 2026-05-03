@@ -85,3 +85,15 @@ def test_options_bypasses_auth(client):
 def test_api_rate_limit_allows_exempt(client):
     response = client.get("/api/health")
     assert response.status_code == 200
+
+
+def test_cors_no_credentials_with_wildcard_origin(client):
+    response = client.options(
+        "/api/conversations",
+        headers={
+            "Origin": "http://evil.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-credentials", "").lower() != "true"

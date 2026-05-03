@@ -12,7 +12,6 @@ dependencies = [
     "openai>=1.0.0",
     "aiosqlite==0.22.1",
     "websockets==16.0",
-    "python-dotenv==1.0.0",
     "structlog==24.1.0",
     "prometheus-client>=0.20.0",
 ]

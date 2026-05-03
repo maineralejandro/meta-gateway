@@ -3,14 +3,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.llm_client import LLMClient
 from core.sentiment import SentimentAnalyzer
 
 
 @pytest.fixture
 def analyzer():
     a = SentimentAnalyzer.__new__(SentimentAnalyzer)
-    a.client = None
-    a._available = False
+    a._llm = LLMClient.__new__(LLMClient)
+    a._llm._client = None
+    a._llm._available = False
+    a._llm._max_retries = 2
+    a._llm._retry_delays = [1.0, 2.0]
+    a._llm._timeout = 30.0
     return a
 
 
@@ -56,6 +61,37 @@ def test_positive_excelente(analyzer):
     assert result["sentiment"] == "positive"
 
 
+def test_positive_with_double_exclamation(analyzer):
+    result = analyzer._heuristic_analysis("Gracias!! Estaba riquísimo")
+    assert result["sentiment"] == "positive"
+    assert result["score"] > 0.7
+
+
+def test_positive_with_triple_exclamation(analyzer):
+    result = analyzer._heuristic_analysis("Delicioso!!!")
+    assert result["sentiment"] == "positive"
+
+
+def test_negative_with_exclamation_no_positive_words(analyzer):
+    result = analyzer._heuristic_analysis("No puedo creerlo!!")
+    assert result["sentiment"] == "negative"
+
+
+def test_mixed_positive_negative_positive_wins(analyzer):
+    result = analyzer._heuristic_analysis("Molesto!! Pero gracias")
+    assert result["sentiment"] == "positive"
+
+
+def test_caps_negative_without_positive(analyzer):
+    result = analyzer._heuristic_analysis("ESTOY ENOJADO PESIMO HORRIBLE")
+    assert result["sentiment"] == "negative"
+
+
+def test_exclamation_without_positive_stays_negative(analyzer):
+    result = analyzer._heuristic_analysis("Horrible!!")
+    assert result["sentiment"] == "negative"
+
+
 def test_neutral(analyzer):
     result = analyzer._heuristic_analysis("Hola, cuánto cuesta el completo?")
     assert result["sentiment"] == "neutral"
@@ -70,8 +106,12 @@ def test_neutral_simple_greeting(analyzer):
 @pytest.mark.asyncio
 async def test_llm_analysis_success():
     a = SentimentAnalyzer.__new__(SentimentAnalyzer)
-    a.client = None
-    a._available = True
+    a._llm = LLMClient.__new__(LLMClient)
+    a._llm._client = None
+    a._llm._available = True
+    a._llm._max_retries = 2
+    a._llm._retry_delays = [1.0, 2.0]
+    a._llm._timeout = 30.0
 
     mock_response = MagicMock()
     mock_response.choices = [
@@ -82,10 +122,8 @@ async def test_llm_analysis_success():
         })))
     ]
 
-    mock_client = MagicMock()
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
-
-    with patch.object(a, "_get_client", return_value=mock_client):
+    with patch.object(a._llm, "chat_completion", return_value=mock_response), \
+         patch.object(a._llm, "get_client", return_value=MagicMock()):
         result = await a.analyze("Me encantó la comida")
 
     assert result["sentiment"] == "positive"
@@ -96,16 +134,18 @@ async def test_llm_analysis_success():
 @pytest.mark.asyncio
 async def test_llm_analysis_none_content():
     a = SentimentAnalyzer.__new__(SentimentAnalyzer)
-    a.client = None
-    a._available = True
+    a._llm = LLMClient.__new__(LLMClient)
+    a._llm._client = None
+    a._llm._available = True
+    a._llm._max_retries = 2
+    a._llm._retry_delays = [1.0, 2.0]
+    a._llm._timeout = 30.0
 
     mock_response = MagicMock()
     mock_response.choices = [MagicMock(message=MagicMock(content=None))]
 
-    mock_client = MagicMock()
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
-
-    with patch.object(a, "_get_client", return_value=mock_client):
+    with patch.object(a._llm, "chat_completion", return_value=mock_response), \
+         patch.object(a._llm, "get_client", return_value=MagicMock()):
         result = await a.analyze("Hola")
 
     assert result["sentiment"] == "neutral"
@@ -114,16 +154,18 @@ async def test_llm_analysis_none_content():
 @pytest.mark.asyncio
 async def test_llm_analysis_invalid_json():
     a = SentimentAnalyzer.__new__(SentimentAnalyzer)
-    a.client = None
-    a._available = True
+    a._llm = LLMClient.__new__(LLMClient)
+    a._llm._client = None
+    a._llm._available = True
+    a._llm._max_retries = 2
+    a._llm._retry_delays = [1.0, 2.0]
+    a._llm._timeout = 30.0
 
     mock_response = MagicMock()
     mock_response.choices = [MagicMock(message=MagicMock(content="not json at all"))]
 
-    mock_client = MagicMock()
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
-
-    with patch.object(a, "_get_client", return_value=mock_client):
+    with patch.object(a._llm, "chat_completion", return_value=mock_response), \
+         patch.object(a._llm, "get_client", return_value=MagicMock()):
         result = await a.analyze("Hola")
 
     assert result["sentiment"] == "neutral"
@@ -134,8 +176,12 @@ async def test_llm_analysis_retry_on_rate_limit():
     from openai import RateLimitError
 
     a = SentimentAnalyzer.__new__(SentimentAnalyzer)
-    a.client = None
-    a._available = True
+    a._llm = LLMClient.__new__(LLMClient)
+    a._llm._client = None
+    a._llm._available = True
+    a._llm._max_retries = 2
+    a._llm._retry_delays = [1.0, 2.0]
+    a._llm._timeout = 30.0
 
     mock_response = MagicMock()
     mock_response.choices = [
@@ -144,8 +190,8 @@ async def test_llm_analysis_retry_on_rate_limit():
         })))
     ]
 
-    mock_client = MagicMock()
-    mock_client.chat.completions.create = AsyncMock(side_effect=[
+    mock_openai_client = MagicMock()
+    mock_openai_client.chat.completions.create = AsyncMock(side_effect=[
         RateLimitError(
             message="rate limited",
             response=MagicMock(status_code=429, headers={}),
@@ -154,12 +200,14 @@ async def test_llm_analysis_retry_on_rate_limit():
         mock_response,
     ])
 
-    with patch.object(a, "_get_client", return_value=mock_client), \
-         patch("core.sentiment.asyncio.sleep", new_callable=AsyncMock):
+    with patch.object(a._llm, "get_client", return_value=mock_openai_client), \
+         patch("core.llm_client.asyncio.sleep", new_callable=AsyncMock), \
+         patch("core.llm_client.settings") as mock_settings:
+        mock_settings.LLM_MODEL = "test-model"
         result = await a.analyze("Hola")
 
     assert result["sentiment"] == "neutral"
-    assert mock_client.chat.completions.create.call_count == 2
+    assert mock_openai_client.chat.completions.create.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -167,18 +215,23 @@ async def test_llm_analysis_all_retries_fail():
     from openai import RateLimitError
 
     a = SentimentAnalyzer.__new__(SentimentAnalyzer)
-    a.client = None
-    a._available = True
+    a._llm = LLMClient.__new__(LLMClient)
+    a._llm._client = None
+    a._llm._available = True
+    a._llm._max_retries = 2
+    a._llm._retry_delays = [1.0, 2.0]
+    a._llm._timeout = 30.0
 
-    mock_client = MagicMock()
-    mock_client.chat.completions.create = AsyncMock(side_effect=RateLimitError(
-        message="rate limited",
-        response=MagicMock(status_code=429, headers={}),
-        body=None,
-    ))
-
-    with patch.object(a, "_get_client", return_value=mock_client), \
-         patch("core.sentiment.asyncio.sleep", new_callable=AsyncMock):
+    with patch.object(
+        a._llm, "chat_completion",
+        side_effect=RateLimitError(
+            message="rate limited",
+            response=MagicMock(status_code=429, headers={}),
+            body=None,
+        ),
+    ), \
+         patch("core.llm_client.asyncio.sleep", new_callable=AsyncMock), \
+         patch.object(a._llm, "get_client", return_value=MagicMock()):
         result = await a.analyze("Estoy molesto")
 
     assert result["sentiment"] == "negative"
@@ -187,10 +240,14 @@ async def test_llm_analysis_all_retries_fail():
 @pytest.mark.asyncio
 async def test_llm_analysis_client_none():
     a = SentimentAnalyzer.__new__(SentimentAnalyzer)
-    a.client = None
-    a._available = True
+    a._llm = LLMClient.__new__(LLMClient)
+    a._llm._client = None
+    a._llm._available = True
+    a._llm._max_retries = 2
+    a._llm._retry_delays = [1.0, 2.0]
+    a._llm._timeout = 30.0
 
-    with patch.object(a, "_get_client", return_value=None):
+    with patch.object(a._llm, "get_client", return_value=None):
         result = await a.analyze("Hola")
 
     assert result["sentiment"] == "neutral"
@@ -199,13 +256,15 @@ async def test_llm_analysis_client_none():
 @pytest.mark.asyncio
 async def test_llm_analysis_generic_exception():
     a = SentimentAnalyzer.__new__(SentimentAnalyzer)
-    a.client = None
-    a._available = True
+    a._llm = LLMClient.__new__(LLMClient)
+    a._llm._client = None
+    a._llm._available = True
+    a._llm._max_retries = 2
+    a._llm._retry_delays = [1.0, 2.0]
+    a._llm._timeout = 30.0
 
-    mock_client = MagicMock()
-    mock_client.chat.completions.create = AsyncMock(side_effect=RuntimeError("unexpected"))
-
-    with patch.object(a, "_get_client", return_value=mock_client):
+    with patch.object(a._llm, "chat_completion", side_effect=RuntimeError("unexpected")), \
+         patch.object(a._llm, "get_client", return_value=MagicMock()):
         result = await a.analyze("Excelente comida")
 
     assert result["sentiment"] == "positive"
@@ -214,12 +273,16 @@ async def test_llm_analysis_generic_exception():
 @pytest.mark.asyncio
 async def test_get_client_lazy_init():
     a = SentimentAnalyzer.__new__(SentimentAnalyzer)
-    a.client = None
-    a._available = True
+    a._llm = LLMClient.__new__(LLMClient)
+    a._llm._client = None
+    a._llm._available = True
+    a._llm._max_retries = 2
+    a._llm._retry_delays = [1.0, 2.0]
+    a._llm._timeout = 30.0
 
-    with patch("core.sentiment.AsyncOpenAI") as mock_openai:
+    with patch("core.llm_client.AsyncOpenAI") as mock_openai:
         mock_openai.return_value = MagicMock()
-        client = a._get_client()
+        client = a._llm.get_client()
 
     assert client is not None
     mock_openai.assert_called_once()
@@ -228,8 +291,12 @@ async def test_get_client_lazy_init():
 @pytest.mark.asyncio
 async def test_get_client_not_available():
     a = SentimentAnalyzer.__new__(SentimentAnalyzer)
-    a.client = None
-    a._available = False
+    a._llm = LLMClient.__new__(LLMClient)
+    a._llm._client = None
+    a._llm._available = False
+    a._llm._max_retries = 2
+    a._llm._retry_delays = [1.0, 2.0]
+    a._llm._timeout = 30.0
 
-    client = a._get_client()
+    client = a._llm.get_client()
     assert client is None

@@ -178,3 +178,12 @@ async def test_conversation_change_agent():
         )
         assert res.status_code == 200
         assert res.json()["agent_id"] == agent_id
+
+
+@pytest.mark.asyncio
+async def test_conversation_not_found_returns_404():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get("/api/conversations/+56999990000", headers=AUTH_HEADERS)
+        assert res.status_code == 404
+        assert res.json()["error"] == "not_found"

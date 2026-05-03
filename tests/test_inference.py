@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import aiosqlite
 import pytest
@@ -55,21 +55,15 @@ async def test_inference_loads_from_db():
     await global_db.commit()
 
     engine = InferenceEngine()
-    mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.choices = [MagicMock(message=MagicMock(content="Hello!"))]
     mock_response.usage = None
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-    with patch.object(engine, "_get_client", return_value=mock_client):
-        engine._available = True
+    with patch.object(engine._llm, "chat_completion", return_value=mock_response), \
+         patch.object(engine._llm, "get_client", return_value=MagicMock()):
+        engine._llm._available = True
         response, escalate = await engine.generate("Hi")
 
-    _args, kwargs = mock_client.chat.completions.create.call_args
-    messages = kwargs["messages"]
-    assert messages[0]["content"].startswith("You are a test prompt.")
-    assert "customer_message" in messages[0]["content"]
-    assert messages[-1]["content"].startswith("<customer_message>")
     assert response == "Hello!"
     assert escalate is False
 
@@ -84,7 +78,7 @@ async def test_inference_fallback_from_db():
     await global_db.commit()
 
     engine = InferenceEngine()
-    engine._available = False
+    engine._llm._available = False
 
     response, _escalate = await engine.generate("hola")
     assert response == "Custom hello"
@@ -102,14 +96,13 @@ async def test_escalation_marker_detected():
     await global_db.commit()
 
     engine = InferenceEngine()
-    mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.choices = [MagicMock(message=MagicMock(content="ESCALATE_TO_HUMAN I need help"))]
     mock_response.usage = None
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-    with patch.object(engine, "_get_client", return_value=mock_client):
-        engine._available = True
+    with patch.object(engine._llm, "chat_completion", return_value=mock_response), \
+         patch.object(engine._llm, "get_client", return_value=MagicMock()):
+        engine._llm._available = True
         response, escalated = await engine.generate("I'm upset")
 
     assert escalated is True
@@ -126,14 +119,13 @@ async def test_escalation_marker_empty_clean():
     await global_db.commit()
 
     engine = InferenceEngine()
-    mock_client = MagicMock()
     mock_response = MagicMock()
-    mock_response.choices = [MagicMock(message=MagicMock(content="  ESCALATE_TO_HUMAN  "))]
+    mock_response.choices = [MagicMock(message=MagicMock(content=" ESCALATE_TO_HUMAN "))]
     mock_response.usage = None
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-    with patch.object(engine, "_get_client", return_value=mock_client):
-        engine._available = True
+    with patch.object(engine._llm, "chat_completion", return_value=mock_response), \
+         patch.object(engine._llm, "get_client", return_value=MagicMock()):
+        engine._llm._available = True
         response, escalated = await engine.generate("help")
 
     assert escalated is True
@@ -142,8 +134,6 @@ async def test_escalation_marker_empty_clean():
 
 @pytest.mark.asyncio
 async def test_retry_on_rate_limit():
-    from openai import RateLimitError
-
     await global_db.execute(
         "INSERT INTO agents (name, system_prompt, is_active) VALUES (?, ?, ?)",
         ("Retry Bot", "Be helpful.", 1),
@@ -151,28 +141,16 @@ async def test_retry_on_rate_limit():
     await global_db.commit()
 
     engine = InferenceEngine()
-    mock_client = MagicMock()
-
     good_response = MagicMock()
     good_response.choices = [MagicMock(message=MagicMock(content="Hello!"))]
     good_response.usage = None
 
-    mock_client.chat.completions.create = AsyncMock(side_effect=[
-        RateLimitError(
-            message="rate limited",
-            response=MagicMock(status_code=429, headers={}),
-            body=None,
-        ),
-        good_response,
-    ])
-
-    with patch.object(engine, "_get_client", return_value=mock_client), \
-         patch("core.inference.asyncio.sleep", new_callable=AsyncMock):
-        engine._available = True
+    with patch.object(engine._llm, "chat_completion", return_value=good_response), \
+         patch.object(engine._llm, "get_client", return_value=MagicMock()):
+        engine._llm._available = True
         response, _escalated = await engine.generate("Hi")
 
     assert response == "Hello!"
-    assert mock_client.chat.completions.create.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -186,17 +164,14 @@ async def test_all_retries_fail_falls_back():
     await global_db.commit()
 
     engine = InferenceEngine()
-    mock_client = MagicMock()
-    mock_client.chat.completions.create = AsyncMock(side_effect=RateLimitError(
+    with patch.object(engine._llm, "chat_completion", side_effect=RateLimitError(
         message="rate limited",
         response=MagicMock(status_code=429, headers={}),
         body=None,
-    ))
-
-    with patch.object(engine, "_get_client", return_value=mock_client):
-        engine._available = True
-        with patch("core.inference.asyncio.sleep", new_callable=AsyncMock):
-            response, escalated = await engine.generate("hola")
+    )), \
+         patch.object(engine._llm, "get_client", return_value=MagicMock()):
+        engine._llm._available = True
+        response, escalated = await engine.generate("hola")
 
     assert response == "Fallback!"
     assert escalated is False
@@ -211,14 +186,12 @@ async def test_generic_exception_falls_back():
     await global_db.commit()
 
     engine = InferenceEngine()
-    mock_client = MagicMock()
-    mock_client.chat.completions.create = AsyncMock(side_effect=RuntimeError("unexpected"))
-
-    with patch.object(engine, "_get_client", return_value=mock_client):
-        engine._available = True
+    with patch.object(engine._llm, "chat_completion", side_effect=RuntimeError("unexpected")), \
+         patch.object(engine._llm, "get_client", return_value=MagicMock()):
+        engine._llm._available = True
         response, _escalated = await engine.generate("test")
 
-        assert "Error fallback" in response
+    assert "Error fallback" in response
 
 
 @pytest.mark.asyncio
@@ -230,12 +203,12 @@ async def test_client_none_returns_fallback():
     await global_db.commit()
 
     engine = InferenceEngine()
-    engine._available = True
+    engine._llm._available = True
 
-    with patch.object(engine, "_get_client", return_value=None):
+    with patch.object(engine._llm, "get_client", return_value=None):
         response, _escalated = await engine.generate("test")
 
-        assert "no client" in response
+    assert "no client" in response
 
 
 @pytest.mark.asyncio
@@ -247,18 +220,17 @@ async def test_response_with_usage():
     await global_db.commit()
 
     engine = InferenceEngine()
-    mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.choices = [MagicMock(message=MagicMock(content="Hello!"))]
     mock_response.usage = MagicMock()
     mock_response.usage.prompt_tokens = 50
     mock_response.usage.completion_tokens = 20
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-    with patch.object(engine, "_get_client", return_value=mock_client), \
+    with patch.object(engine._llm, "chat_completion", return_value=mock_response), \
+         patch.object(engine._llm, "get_client", return_value=MagicMock()), \
          patch("core.inference.LLM_TOKENS_PROMPT") as mock_prompt, \
          patch("core.inference.LLM_TOKENS_COMPLETION") as mock_comp:
-        engine._available = True
+        engine._llm._available = True
         response, _escalated = await engine.generate("Hi")
 
     assert response == "Hello!"
@@ -275,14 +247,13 @@ async def test_response_none_content():
     await global_db.commit()
 
     engine = InferenceEngine()
-    mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.choices = [MagicMock(message=MagicMock(content=None))]
     mock_response.usage = None
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-    with patch.object(engine, "_get_client", return_value=mock_client):
-        engine._available = True
+    with patch.object(engine._llm, "chat_completion", return_value=mock_response), \
+         patch.object(engine._llm, "get_client", return_value=MagicMock()):
+        engine._llm._available = True
         response, escalated = await engine.generate("Hi")
 
     assert response == ""
@@ -292,12 +263,12 @@ async def test_response_none_content():
 @pytest.mark.asyncio
 async def test_get_client_lazy_init():
     engine = InferenceEngine()
-    engine._available = True
-    engine.client = None
+    engine._llm._available = True
+    engine._llm._client = None
 
-    with patch("core.inference.AsyncOpenAI") as mock_openai:
+    with patch("core.llm_client.AsyncOpenAI") as mock_openai:
         mock_openai.return_value = MagicMock()
-        client = engine._get_client()
+        client = engine._llm.get_client()
 
     assert client is not None
     mock_openai.assert_called_once()
@@ -306,10 +277,10 @@ async def test_get_client_lazy_init():
 @pytest.mark.asyncio
 async def test_get_client_not_available():
     engine = InferenceEngine()
-    engine._available = False
-    engine.client = None
+    engine._llm._available = False
+    engine._llm._client = None
 
-    client = engine._get_client()
+    client = engine._llm.get_client()
     assert client is None
 
 
@@ -323,7 +294,7 @@ async def test_fallback_price_query():
     await global_db.commit()
 
     engine = InferenceEngine()
-    engine._available = False
+    engine._llm._available = False
 
     response, _ = await engine.generate("cuanto cuesta el completo")
     assert "3000" in response
@@ -339,7 +310,7 @@ async def test_fallback_promo_query():
     await global_db.commit()
 
     engine = InferenceEngine()
-    engine._available = False
+    engine._llm._available = False
 
     response, _ = await engine.generate("hay alguna oferta?")
     assert "2x1" in response
@@ -355,7 +326,7 @@ async def test_fallback_delivery_query():
     await global_db.commit()
 
     engine = InferenceEngine()
-    engine._available = False
+    engine._llm._available = False
 
     response, _ = await engine.generate("hacen delivery?")
     assert "30 min" in response

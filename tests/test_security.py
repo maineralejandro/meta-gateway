@@ -1,7 +1,7 @@
 import hashlib
 import hmac
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -62,6 +62,24 @@ async def test_verify_meta_signature_dev_mode():
 
     result = await verify_meta_signature(request, body)
     assert result is True # Permisivo en dev
+
+
+@pytest.mark.asyncio
+async def test_signature_mismatch_no_hash_leak():
+    settings.META_APP_SECRET = "test_secret"
+    body = b'some_body'
+
+    request = MagicMock()
+    request.headers = {"X-Hub-Signature-256": "sha256=invalid_hash"}
+
+    with patch("core.security.logger") as mock_logger:
+        result = await verify_meta_signature(request, body)
+
+    assert result is False
+    mock_logger.warning.assert_called_once_with("webhook_signature_mismatch")
+    call_kwargs = mock_logger.warning.call_args[1]
+    assert "expected" not in call_kwargs
+    assert "provided" not in call_kwargs
 
 def test_rate_limiter():
     limiter = RateLimiter(max_per_minute=5)

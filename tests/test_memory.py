@@ -1,7 +1,7 @@
 import json
 import os
 from contextlib import suppress
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -48,68 +48,68 @@ async def clean_db():
     order_state._orders.clear()
     order_state._loaded_phones.clear()
 
-    @pytest.mark.asyncio
-    async def test_build_context_no_memory():
-        phone = "+56912345678"
-        manager = MemoryManager()
+@pytest.mark.asyncio
+async def test_build_context_no_memory():
+    phone = "+56912345678"
+    manager = MemoryManager()
 
-        await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES (?, 'BOT_ACTIVE', 1)", (phone,))
-        for i in range(5):
-            await db.execute(
-                "INSERT INTO messages (phone, direction, source, text) VALUES (?, ?, ?, ?)",
-                (phone, "inbound" if i % 2 == 0 else "outbound", "customer" if i % 2 == 0 else "bot", f"Mensaje {i}")
-            )
-        await db.commit()
-
-        context = await manager.build_context(phone)
-        assert len(context) == 5
-        assert context[0]["role"] == "user"
-        assert context[0]["content"] == "Mensaje 0"
-        assert context[-1]["content"] == "Mensaje 4"
-
-    @pytest.mark.asyncio
-    async def test_build_context_returns_recent_messages():
-        phone = "+56919999999"
-        manager = MemoryManager()
-
-        await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES (?, 'BOT_ACTIVE', 1)", (phone,))
-        for i in range(20):
-            await db.execute(
-                "INSERT INTO messages (phone, direction, source, text) VALUES (?, ?, ?, ?)",
-                (phone, "inbound" if i % 2 == 0 else "outbound", "customer" if i % 2 == 0 else "bot", f"Mensaje {i}")
-            )
-        await db.commit()
-
-        context = await manager.build_context(phone)
-        assert len(context) == WINDOW_SIZE
-        assert context[0]["content"] == "Mensaje 4"
-        assert context[-1]["content"] == "Mensaje 19"
-
-    @pytest.mark.asyncio
-    async def test_build_context_excludes_current_message():
-        phone = "+56918888888"
-        manager = MemoryManager()
-
-        await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES (?, 'BOT_ACTIVE', 1)", (phone,))
+    await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES (?, 'BOT_ACTIVE', 1)", (phone,))
+    for i in range(5):
         await db.execute(
-            "INSERT INTO messages (phone, direction, source, text) VALUES (?, 'inbound', 'customer', 'Hola')",
-            (phone,)
+            "INSERT INTO messages (phone, direction, source, text) VALUES (?, ?, ?, ?)",
+            (phone, "inbound" if i % 2 == 0 else "outbound", "customer" if i % 2 == 0 else "bot", f"Mensaje {i}")
         )
-        await db.execute(
-            "INSERT INTO messages (phone, direction, source, text) VALUES (?, 'outbound', 'bot', 'Bienvenido')",
-            (phone,)
-        )
-        await db.execute(
-            "INSERT INTO messages (phone, direction, source, text) VALUES (?, 'inbound', 'customer', 'Quiero completo')",
-            (phone,)
-        )
-        await db.commit()
+    await db.commit()
 
-        context = await manager.build_context(phone, current_message="Quiero completo")
-        texts = [c["content"] for c in context]
-        assert "Quiero completo" not in texts
-        assert "Hola" in texts
-        assert "Bienvenido" in texts
+    context = await manager.build_context(phone)
+    assert len(context) == 5
+    assert context[0]["role"] == "user"
+    assert context[0]["content"] == "Mensaje 0"
+    assert context[-1]["content"] == "Mensaje 4"
+
+@pytest.mark.asyncio
+async def test_build_context_returns_recent_messages():
+    phone = "+56919999999"
+    manager = MemoryManager()
+
+    await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES (?, 'BOT_ACTIVE', 1)", (phone,))
+    for i in range(20):
+        await db.execute(
+            "INSERT INTO messages (phone, direction, source, text) VALUES (?, ?, ?, ?)",
+            (phone, "inbound" if i % 2 == 0 else "outbound", "customer" if i % 2 == 0 else "bot", f"Mensaje {i}")
+        )
+    await db.commit()
+
+    context = await manager.build_context(phone)
+    assert len(context) == WINDOW_SIZE
+    assert context[0]["content"] == "Mensaje 4"
+    assert context[-1]["content"] == "Mensaje 19"
+
+@pytest.mark.asyncio
+async def test_build_context_excludes_current_message():
+    phone = "+56918888888"
+    manager = MemoryManager()
+
+    await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES (?, 'BOT_ACTIVE', 1)", (phone,))
+    await db.execute(
+        "INSERT INTO messages (phone, direction, source, text) VALUES (?, 'inbound', 'customer', 'Hola')",
+        (phone,)
+    )
+    await db.execute(
+        "INSERT INTO messages (phone, direction, source, text) VALUES (?, 'outbound', 'bot', 'Bienvenido')",
+        (phone,)
+    )
+    await db.execute(
+        "INSERT INTO messages (phone, direction, source, text) VALUES (?, 'inbound', 'customer', 'Quiero completo')",
+        (phone,)
+    )
+    await db.commit()
+
+    context = await manager.build_context(phone, current_message="Quiero completo")
+    texts = [c["content"] for c in context]
+    assert "Quiero completo" not in texts
+    assert "Hola" in texts
+    assert "Bienvenido" in texts
 
 @pytest.mark.asyncio
 async def test_build_context_with_memory():
@@ -146,42 +146,36 @@ async def test_build_context_filters_media():
     assert context[1]["content"] == "[location] Calle 123"
 
 @pytest.mark.asyncio
-@patch("core.memory.AsyncOpenAI")
-async def test_maybe_summarize_threshold(mock_openai_class):
+async def test_maybe_summarize_threshold():
     phone = "+56911112222"
     manager = MemoryManager()
 
-    mock_client = AsyncMock()
-    mock_openai_class.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.content = json.dumps({
+        "summary": "Nuevo resumen",
+        "key_facts": ["Fact A"]
+    })
 
-    with patch("core.memory.settings") as mock_settings:
-        mock_settings.LLM_API_KEY = "sk-test"
-        mock_settings.LLM_BASE_URL = "https://api.openai.com/v1"
-        mock_settings.LLM_MODEL = "gpt-3.5-turbo"
+    await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES (?, 'BOT_ACTIVE', 1)", (phone,))
+    for _ in range(15):
+        await db.execute("INSERT INTO messages (phone, direction, source, text) VALUES (?, 'inbound', 'customer', 'msg')", (phone,))
+    await db.commit()
 
-        await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES (?, 'BOT_ACTIVE', 1)", (phone,))
-        for _ in range(15):
-            await db.execute("INSERT INTO messages (phone, direction, source, text) VALUES (?, 'inbound', 'customer', 'msg')", (phone,))
-        await db.commit()
-
-        mock_response = AsyncMock()
-        mock_response.choices = [AsyncMock()]
-        mock_response.choices[0].message.content = json.dumps({
-            "summary": "Nuevo resumen",
-            "key_facts": ["Fact A"]
-        })
-        mock_client.chat.completions.create.return_value = mock_response
-
+    with patch.object(manager._llm, "get_client", return_value=MagicMock()), \
+         patch.object(manager._llm, "chat_completion", return_value=mock_response):
         await manager.maybe_summarize(phone)
 
-        memory = await db.get_memory(phone)
-        assert memory.summary == "Nuevo resumen"
-        assert memory.total_messages_summarized == 15
+    memory = await db.get_memory(phone)
+    assert memory.summary == "Nuevo resumen"
+    assert memory.total_messages_summarized == 15
 
 
 @pytest.mark.asyncio
 async def test_order_state_add_item():
     state = OrderState()
+    state._persist = AsyncMock()
+    state._ensure_loaded = AsyncMock()
     await state.add_item("+569", "completo_vienesa_gigante", 3)
     await state.add_item("+569", "papas_mediana", 2)
     order = await state.get_order("+569")
@@ -197,6 +191,8 @@ async def test_order_state_add_item():
 @pytest.mark.asyncio
 async def test_order_state_parse_tags():
     state = OrderState()
+    state._persist = AsyncMock()
+    state._ensure_loaded = AsyncMock()
     cleaned = await state.parse_tags("+569", "Anotado! [ORDER_ADD:completo_vienesa_gigante:3][ORDER_ADD:papas_mediana:2]")
     assert cleaned == "Anotado!"
     order = await state.get_order("+569")
@@ -207,6 +203,8 @@ async def test_order_state_parse_tags():
 @pytest.mark.asyncio
 async def test_order_state_parse_remove_tag():
     state = OrderState()
+    state._persist = AsyncMock()
+    state._ensure_loaded = AsyncMock()
     await state.add_item("+569", "completo_vienesa_gigante", 3)
     await state.parse_tags("+569", "Quitado [ORDER_REMOVE:completo_vienesa_gigante:1]")
     assert (await state.get_order("+569"))["items"][0]["quantity"] == 2
@@ -215,14 +213,22 @@ async def test_order_state_parse_remove_tag():
 @pytest.mark.asyncio
 async def test_order_state_parse_clear_tag():
     state = OrderState()
+    state._persist = AsyncMock()
+    state._ensure_loaded = AsyncMock()
     await state.add_item("+569", "completo_vienesa_gigante", 3)
-    await state.parse_tags("+569", "Empezamos de cero [ORDER_CLEAR]")
+    with patch("db.database.get_db") as mock_get_db:
+        mock_db = MagicMock()
+        mock_db.delete_order = AsyncMock()
+        mock_get_db.return_value = mock_db
+        await state.parse_tags("+569", "Empezamos de cero [ORDER_CLEAR]")
     assert (await state.get_order("+569"))["items"] == []
 
 
 @pytest.mark.asyncio
 async def test_order_state_format_for_context():
     state = OrderState()
+    state._persist = AsyncMock()
+    state._ensure_loaded = AsyncMock()
     result = await state.format_for_context("+569")
     assert result is None
 
@@ -237,6 +243,8 @@ async def test_order_state_format_for_context():
 @pytest.mark.asyncio
 async def test_order_state_unknown_item():
     state = OrderState()
+    state._persist = AsyncMock()
+    state._ensure_loaded = AsyncMock()
     await state.add_item("+569", "item_inexistente", 1)
     assert (await state.get_order("+569"))["items"] == []
 

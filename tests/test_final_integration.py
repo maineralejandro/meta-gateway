@@ -123,11 +123,8 @@ async def test_full_conversation_lifecycle():
         })))
     ]
 
-    with patch.object(memory_manager, "_get_client") as mock_get_client:
-        mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
-        mock_get_client.return_value = mock_client
-
+    with patch.object(memory_manager._llm, "chat_completion", return_value=mock_response), \
+         patch.object(memory_manager._llm, "get_client", return_value=MagicMock()):
         await memory_manager.maybe_summarize(phone)
 
     # Verificar que hay memoria
