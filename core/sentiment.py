@@ -1,11 +1,19 @@
-from openai import AsyncOpenAI
-from core.config import settings
+import asyncio
+import json
+from typing import Any
+
 import structlog
+from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, RateLimitError
+
+from core.config import settings
 
 logger = structlog.get_logger()
 
+MAX_RETRIES = 2
+RETRY_DELAYS = [1.0, 2.0]
+
 SENTIMENT_PROMPT = """Analiza el siguiente mensaje de un cliente de WhatsApp y responde SOLO con un JSON:
-{"sentiment": "positive"|"neutral"|"negative", "score": 0.0-1.0, "confidence": 0.0-1.0}
+{{"sentiment": "positive"|"neutral"|"negative", "score": 0.0-1.0, "confidence": 0.0-1.0}}
 
 - sentiment: positive si el cliente está contento, neutral si es informativo/pregunta, negative si está enojado/frustrado/quejándose
 - score: 1.0 = muy positive, 0.5 = neutral, 0.0 = muy negative
@@ -15,11 +23,11 @@ Mensaje: {message}"""
 
 
 class SentimentAnalyzer:
-    def __init__(self):
-        self.client = None
+    def __init__(self) -> None:
+        self.client: AsyncOpenAI | None = None
         self._available = bool(settings.LLM_API_KEY and not settings.LLM_API_KEY.startswith("nvapi-REPLACE"))
 
-    def _get_client(self):
+    def _get_client(self) -> AsyncOpenAI | None:
         if self.client is None and self._available:
             self.client = AsyncOpenAI(
                 api_key=settings.LLM_API_KEY,
@@ -27,7 +35,7 @@ class SentimentAnalyzer:
             )
         return self.client
 
-    async def analyze(self, text: str) -> dict:
+    async def analyze(self, text: str) -> dict[str, Any]:
         """
         Returns: {"sentiment": str, "score": float, "confidence": float}
         """
@@ -36,14 +44,29 @@ class SentimentAnalyzer:
 
         try:
             client = self._get_client()
-            response = await client.chat.completions.create(
-                model=settings.LLM_MODEL,
-                max_tokens=100,
-                messages=[{"role": "user", "content": SENTIMENT_PROMPT.format(message=text)}],
-            )
+            if client is None:
+                return self._heuristic_analysis(text)
+            last_err = None
+            for attempt in range(MAX_RETRIES + 1):
+                try:
+                    response = await client.chat.completions.create(
+                        model=settings.LLM_MODEL,
+                        max_tokens=100,
+                        messages=[{"role": "user", "content": SENTIMENT_PROMPT.format(message=text)}],
+                    )
+                    break
+                except (RateLimitError, APIConnectionError, APITimeoutError) as e:
+                    last_err = e
+                    logger.warning("sentiment_retry", attempt=attempt + 1, error=str(e))
+                    if attempt < MAX_RETRIES:
+                        await asyncio.sleep(RETRY_DELAYS[attempt])
+                    else:
+                        raise last_err from last_err
 
-            raw = response.choices[0].message.content.strip()
-            import json
+            raw = response.choices[0].message.content
+            if raw is None:
+                return self._heuristic_analysis(text)
+            raw = raw.strip()
             result = json.loads(raw)
             return {
                 "sentiment": result.get("sentiment", "neutral"),
@@ -55,7 +78,7 @@ class SentimentAnalyzer:
             logger.error("sentiment_analysis_error", error=str(e))
             return self._heuristic_analysis(text)
 
-    def _heuristic_analysis(self, text: str) -> dict:
+    def _heuristic_analysis(self, text: str) -> dict[str, Any]:
         negative_words = [
             "molesto", "enojado", "furioso", "terrible", "pésimo", "pesimo", "mal",
             "cancelar", "cancela", "cancelo", "anular", "anula", "anulo",

@@ -1,15 +1,21 @@
-import json
 import asyncio
-from db.database import db
+import json
+from typing import Any
+
+import structlog
+from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, RateLimitError
+
 from core.config import settings
 from core.order_state import order_state
-from openai import AsyncOpenAI
-import structlog
+from db.database import db
 
 logger = structlog.get_logger()
 
-WINDOW_SIZE = 16 # Mensajes recientes que van completos al LLM
-SUMMARIZE_THRESHOLD = 15  # Cada cuántos mensajes nuevos se genera resumen
+WINDOW_SIZE = 16
+SUMMARIZE_THRESHOLD = 15
+
+MAX_RETRIES = 2
+RETRY_DELAYS = [1.0, 2.0]
 
 SUMMARY_PROMPT = """Eres un asistente de gestión de memoria. Actualiza el resumen de esta conversación de WhatsApp.
 
@@ -29,8 +35,8 @@ Responde EXACTAMENTE con este formato JSON:
 
 
 class MemoryManager:
-    def __init__(self):
-        self._client = None
+    def __init__(self) -> None:
+        self._client: AsyncOpenAI | None = None
 
     def _get_client(self) -> AsyncOpenAI | None:
         available = bool(
@@ -46,7 +52,7 @@ class MemoryManager:
             )
         return self._client
 
-    async def build_context(self, phone: str, current_message: str | None = None) -> list[dict]:
+    async def build_context(self, phone: str, current_message: str | None = None) -> list[dict[str, Any]]:
         """Construye la lista de mensajes para el LLM: resumen + ventana reciente."""
         memory = await db.get_memory(phone)
         recent_msgs = await db.get_messages(phone, limit=WINDOW_SIZE, desc=True)
@@ -62,7 +68,7 @@ class MemoryManager:
             context.append({"role": "system", "content": summary_text})
 
         # 1b. Inyectar estado del pedido si existe
-        order_context = order_state.format_for_context(phone)
+        order_context = await order_state.format_for_context(phone)
         if order_context:
             context.append({"role": "system", "content": order_context})
 
@@ -79,7 +85,7 @@ class MemoryManager:
 
         return context
 
-    async def maybe_summarize(self, phone: str):
+    async def maybe_summarize(self, phone: str) -> None:
         """Comprime mensajes viejos en un resumen si se superó el umbral."""
         memory = await db.get_memory(phone)
         total = await db.count_messages(phone)
@@ -109,19 +115,34 @@ class MemoryManager:
         previous_summary = memory.summary if memory else "Sin resumen previo."
 
         try:
-            response = await client.chat.completions.create(
-                model=settings.LLM_MODEL,
-                max_tokens=300,
-                messages=[{
-                    "role": "user",
-                    "content": SUMMARY_PROMPT.format(
-                        previous_summary=previous_summary,
-                        messages=messages_text,
-                    ),
-                }],
-            )
+            last_err = None
+            for attempt in range(MAX_RETRIES + 1):
+                try:
+                    response = await client.chat.completions.create(
+                        model=settings.LLM_MODEL,
+                        max_tokens=300,
+                        messages=[{
+                            "role": "user",
+                            "content": SUMMARY_PROMPT.format(
+                                previous_summary=previous_summary,
+                                messages=messages_text,
+                            ),
+                        }],
+                    )
+                    break
+                except (RateLimitError, APIConnectionError, APITimeoutError) as e:
+                    last_err = e
+                    logger.warning("memory_retry", attempt=attempt + 1, error=str(e))
+                    if attempt < MAX_RETRIES:
+                        await asyncio.sleep(RETRY_DELAYS[attempt])
+                    else:
+                        raise last_err from last_err
 
-            raw = response.choices[0].message.content.strip()
+            raw_content = response.choices[0].message.content
+            if raw_content is None:
+                logger.error("memory_empty_response")
+                return
+            raw = raw_content.strip()
             # Encontrar el JSON en caso de que el modelo devuelva texto adicional
             try:
                 start = raw.find('{')

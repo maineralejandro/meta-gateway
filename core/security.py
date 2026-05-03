@@ -1,8 +1,10 @@
-import hmac
 import hashlib
+import hmac
 import time
+
 import structlog
 from fastapi import Request
+
 from core.config import settings
 
 logger = structlog.get_logger()
@@ -38,7 +40,7 @@ async def verify_meta_signature(request: Request, body: bytes) -> bool:
 
     if hmac.compare_digest(expected_hash, provided_hash):
         return True
-    
+
     logger.warning("webhook_signature_mismatch", expected=expected_hash, provided=provided_hash)
     return False
 
@@ -53,20 +55,20 @@ class RateLimiter:
 
     def is_allowed(self, phone: str) -> bool:
         now = time.time()
-        
+
         if phone not in self.requests:
             self.requests[phone] = []
-            
+
         # Limpiar requests antiguos (> 60 segundos)
         self.requests[phone] = [req_time for req_time in self.requests[phone] if now - req_time < 60]
-        
+
         if len(self.requests[phone]) >= self.max_per_minute:
             return False
-            
+
         self.requests[phone].append(now)
         return True
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         """Elimina entradas de teléfonos sin actividad reciente."""
         now = time.time()
         phones_to_delete = []
@@ -77,12 +79,43 @@ class RateLimiter:
                 phones_to_delete.append(phone)
             else:
                 self.requests[phone] = valid_timestamps
-                
+
         for phone in phones_to_delete:
             del self.requests[phone]
 
 # Instancia global del rate limiter
 rate_limiter = RateLimiter()
+
+
+class IPRateLimiter:
+    def __init__(self, max_per_minute: int = 60):
+        self.max_per_minute = max_per_minute
+        self.requests: dict[str, list[float]] = {}
+
+    def is_allowed(self, client_ip: str) -> bool:
+        now = time.time()
+        if client_ip not in self.requests:
+            self.requests[client_ip] = []
+        self.requests[client_ip] = [t for t in self.requests[client_ip] if now - t < 60]
+        if len(self.requests[client_ip]) >= self.max_per_minute:
+            return False
+        self.requests[client_ip].append(now)
+        return True
+
+    def cleanup(self) -> None:
+        now = time.time()
+        to_delete = []
+        for ip, timestamps in self.requests.items():
+            valid = [t for t in timestamps if now - t < 60]
+            if not valid:
+                to_delete.append(ip)
+            else:
+                self.requests[ip] = valid
+        for ip in to_delete:
+            del self.requests[ip]
+
+
+api_rate_limiter = IPRateLimiter(max_per_minute=60)
 
 def sanitize_llm_output(text: str) -> str:
     """
@@ -93,14 +126,14 @@ def sanitize_llm_output(text: str) -> str:
     """
     if not text:
         return ""
-        
+
     # Truncar a 2000 caracteres (límite razonable para WhatsApp)
     text = text[:2000]
-    
+
     # Filtrar caracteres de control (ascii < 32), excepto newline (\n) y carriage return (\r)
     sanitized_chars = []
     for char in text:
         if ord(char) >= 32 or char in ('\n', '\r'):
             sanitized_chars.append(char)
-            
+
     return "".join(sanitized_chars).strip()

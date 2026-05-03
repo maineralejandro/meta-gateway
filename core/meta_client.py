@@ -1,12 +1,15 @@
+from typing import Any
+
 import httpx
-from core.config import settings
 import structlog
+
+from core.config import settings
 
 logger = structlog.get_logger()
 
 
 class MetaAPIClient:
-    def __init__(self):
+    def __init__(self) -> None:
         self.base_url = f"{settings.META_API_URL}/{settings.WHATSAPP_PHONE_NUMBER_ID}"
         self.headers = {
             "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
@@ -22,7 +25,7 @@ class MetaAPIClient:
             )
         return self._client
 
-    async def send_text(self, phone: str, text: str) -> dict:
+    async def send_text(self, phone: str, text: str) -> dict[str, Any]:
         client = await self._get_client()
         payload = {
             "messaging_product": "whatsapp",
@@ -35,12 +38,13 @@ class MetaAPIClient:
             error_body = resp.text
             logger.error("meta_api_error", status=resp.status_code, body=error_body)
             return {"error": True, "status": resp.status_code, "detail": error_body}
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
-    async def send_message(self, phone: str, text: str) -> dict:
+    async def send_message(self, phone: str, text: str) -> dict[str, Any]:
         return await self.send_text(phone, text)
 
-    async def health_check(self) -> dict:
+    async def health_check(self) -> dict[str, Any]:
         try:
             if not settings.WHATSAPP_ACCESS_TOKEN:
                 return {"connected": False, "status_code": None, "error": "No access token configured"}
@@ -55,7 +59,7 @@ class MetaAPIClient:
             logger.error("meta_health_check_exception", error=str(e))
             return {"connected": False, "status_code": None, "error": str(e)}
 
-    async def close(self):
+    async def close(self) -> None:
         if self._client and not self._client.is_closed:
             await self._client.aclose()
 

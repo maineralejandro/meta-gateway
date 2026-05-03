@@ -1,8 +1,9 @@
-from datetime import datetime, timedelta, timezone
-from db.database import db
-from core.order_state import order_state
+from datetime import UTC, datetime, timedelta
+
 import structlog
-from typing import Optional
+
+from core.order_state import order_state
+from db.database import db
 
 logger = structlog.get_logger()
 SESSION_TIMEOUT_HOURS = 4
@@ -29,11 +30,11 @@ class SessionManager:
                 last_msg_str = conv.last_message_at
                 if " " in last_msg_str and "T" not in last_msg_str:
                     # Formato SQLite standard: YYYY-MM-DD HH:MM:SS
-                    last_msg_time = datetime.strptime(last_msg_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                    last_msg_time = datetime.strptime(last_msg_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
                 else:
                     last_msg_time = datetime.fromisoformat(last_msg_str.replace("Z", "+00:00"))
 
-                elapsed = datetime.now(timezone.utc) - last_msg_time
+                elapsed = datetime.now(UTC) - last_msg_time
 
                 if elapsed > timedelta(hours=SESSION_TIMEOUT_HOURS):
                     # Cerrar sesión vieja
@@ -41,7 +42,7 @@ class SessionManager:
                         conv.current_session_id,
                         reason='timeout',
                     )
-                    order_state.clear(phone)
+                    await order_state.clear(phone)
                     logger.info(
                         "session_expired",
                         phone=phone,

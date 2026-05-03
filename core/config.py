@@ -1,5 +1,7 @@
-from pydantic_settings import BaseSettings
 from pathlib import Path
+from typing import Any
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -10,11 +12,11 @@ class Settings(BaseSettings):
     META_APP_SECRET: str = ""
 
     LLM_PROVIDER: str = "nvidia"
-    LLM_MODEL: str = "meta/llama-3.1-70b-instruct"
+    LLM_MODEL: str = "meta/llama-3.3-70b-instruct"
     LLM_API_KEY: str = ""
     LLM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
 
-    DB_DIR: str = "/tmp/hermes"
+    DB_DIR: str = "./data"
     DB_NAME: str = "whatsapp_conversations.db"
     DB_PATH: str = ""
 
@@ -25,13 +27,15 @@ class Settings(BaseSettings):
 
     DASHBOARD_TOKEN: str = ""
     CORS_ORIGINS: str = "*"
+    SKIP_STARTUP_VALIDATION: bool = False
 
-    class Config:
-        env_file = str(Path(__file__).resolve().parents[1] / ".env")
-        env_file_encoding = "utf-8"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_file=str(Path(__file__).resolve().parents[1] / ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         if not self.DB_PATH:
             import os

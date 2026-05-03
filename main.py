@@ -1,24 +1,36 @@
-from fastapi import FastAPI, Request, Response
-from fastapi.responses import HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-
-from db.database import init_db, close_db
-from core.meta_client import meta_client
-from core.config import settings
-from routers import webhook, conversations, messages, ws, agents
+from typing import Any
 
 import structlog
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.responses import Response as StarletteResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from starlette.middleware.base import BaseHTTPMiddleware
+
+from core.background import start_cleanup_task, stop_cleanup_task
+from core.config import settings
+from core.events import setup_default_subscribers
+from core.logging_config import setup_logging
+from core.meta_client import meta_client
+from core.metrics import APP_INFO
+from core.security import api_rate_limiter
+from core.task_tracker import wait_for_inflight
+from db.database import close_db, init_db
+from routers import agents, conversations, messages, webhook, ws
+
+setup_logging()
 
 logger = structlog.get_logger()
 
 
-EXEMPT_PATHS = {"/", "/api/health", "/webhook/whatsapp", "/docs", "/openapi.json", "/redoc"}
+EXEMPT_PATHS = {"/", "/api/health", "/metrics", "/webhook/whatsapp", "/docs", "/openapi.json", "/redoc"}
 
 
 class TokenAuthMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: Any) -> Any:
         if request.method == "OPTIONS":
             return await call_next(request)
 
@@ -36,10 +48,41 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         return Response(status_code=401, content="Unauthorized")
 
 
+class APIRateLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: Any) -> Any:
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        path = request.url.path
+        if path in EXEMPT_PATHS or path.startswith("/webhook"):
+            return await call_next(request)
+
+        client_ip = request.client.host if request.client else "unknown"
+        if not api_rate_limiter.is_allowed(client_ip):
+            return Response(status_code=429, content="Rate limit exceeded")
+
+        return await call_next(request)
+
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_db()
+    setup_default_subscribers()
+    APP_INFO.info({"version": "2.0.0", "llm_model": settings.LLM_MODEL or "unknown"})
+    start_cleanup_task()
     logger.info("db_initialized", path=settings.DB_PATH)
+
+    if not settings.SKIP_STARTUP_VALIDATION:
+        required = {
+            "WHATSAPP_ACCESS_TOKEN": settings.WHATSAPP_ACCESS_TOKEN,
+            "META_APP_SECRET": settings.META_APP_SECRET,
+            "LLM_API_KEY": settings.LLM_API_KEY,
+            "WHATSAPP_PHONE_NUMBER_ID": settings.WHATSAPP_PHONE_NUMBER_ID,
+        }
+        missing = [k for k, v in required.items() if not v or "REPLACE" in v]
+        if missing:
+            raise RuntimeError(f"Missing required config: {', '.join(missing)}. Set SKIP_STARTUP_VALIDATION=true to bypass.")
+
     logger.info(
         "settings_loaded",
         llm_provider=settings.LLM_PROVIDER,
@@ -48,11 +91,12 @@ async def lifespan(app: FastAPI):
         llm_key_set=bool(settings.LLM_API_KEY and not settings.LLM_API_KEY.startswith("nvapi-REPLACE")),
         meta_api_url=settings.META_API_URL,
         meta_token_set=bool(settings.WHATSAPP_ACCESS_TOKEN),
-        meta_token_prefix=settings.WHATSAPP_ACCESS_TOKEN[:10] + "..." if settings.WHATSAPP_ACCESS_TOKEN else "EMPTY",
         phone_number_id=settings.WHATSAPP_PHONE_NUMBER_ID,
-        env_file=settings.Config.env_file,
+        env_file=str(settings.model_config.get("env_file", "")),
     )
     yield
+    stop_cleanup_task()
+    await wait_for_inflight()
     await meta_client.close()
     await close_db()
     logger.info("shutdown_complete")
@@ -65,6 +109,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(APIRateLimitMiddleware)
 app.add_middleware(TokenAuthMiddleware)
 
 cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
@@ -84,7 +129,7 @@ app.include_router(ws.router)
 
 
 @app.get("/", response_class=HTMLResponse)
-async def home():
+async def home() -> str:
     return """
     <!DOCTYPE html>
     <html>
@@ -130,12 +175,28 @@ async def home():
     """
 
 
+@app.get("/metrics")
+async def metrics() -> Any:
+    return StarletteResponse(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 @app.get("/api/health")
-async def health_check():
+async def health_check() -> dict[str, Any]:
     meta_health = await meta_client.health_check()
     llm_key_valid = bool(settings.LLM_API_KEY and not settings.LLM_API_KEY.startswith("nvapi-REPLACE"))
+
+    db_ok = False
+    try:
+        from db.database import get_db
+        _db = await get_db()
+        await _db.fetchone("SELECT 1")
+        db_ok = True
+    except Exception:
+        pass
+
+    status = "ok" if meta_health["connected"] and llm_key_valid and db_ok else "degraded"
     return {
-        "status": "ok" if meta_health["connected"] and llm_key_valid else "degraded",
+        "status": status,
         "meta_api": {
             "connected": meta_health["connected"],
             "status_code": meta_health["status_code"],
@@ -143,7 +204,6 @@ async def health_check():
             "api_version": settings.META_API_URL.split("/")[-1],
             "phone_number_id": settings.WHATSAPP_PHONE_NUMBER_ID,
             "token_set": bool(settings.WHATSAPP_ACCESS_TOKEN),
-            "token_prefix": settings.WHATSAPP_ACCESS_TOKEN[:10] + "..." if settings.WHATSAPP_ACCESS_TOKEN else "EMPTY",
         },
         "llm": {
             "available": llm_key_valid,
@@ -152,7 +212,7 @@ async def health_check():
             "base_url": settings.LLM_BASE_URL,
             "api_key_set": llm_key_valid,
         },
-        "db_path": settings.DB_PATH,
+        "db": {"connected": db_ok, "path": settings.DB_PATH},
     }
 
 
