@@ -41,7 +41,7 @@ async def verify_meta_signature(request: Request, body: bytes) -> bool:
     if hmac.compare_digest(expected_hash, provided_hash):
         return True
 
-    logger.warning("webhook_signature_mismatch", expected=expected_hash, provided=provided_hash)
+    logger.warning("webhook_signature_mismatch")
     return False
 
 class RateLimiter:

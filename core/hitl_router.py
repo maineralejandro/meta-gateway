@@ -141,10 +141,9 @@ class HITLRouter:
 
             if should_escalate:
                 ESCALATIONS.labels(reason=reason.split("(")[0]).inc()
-                await db.execute_transaction([
-                    ("UPDATE conversations SET sentiment_score=?, confidence=?, state='PENDING_APPROVAL', requires_human_review=1 WHERE phone=?", (sentiment_result["score"], sentiment_result["confidence"], phone)),
-                    ("INSERT INTO escalation_events (phone, from_state, to_state, reason, sentiment_score, confidence) VALUES (?, 'BOT_ACTIVE', 'PENDING_APPROVAL', ?, ?, ?)", (phone, reason, sentiment_result["score"], sentiment_result["confidence"])),
-                ])
+                await db.escalate_conversation(
+                    phone, sentiment_result["score"], sentiment_result["confidence"], reason
+                )
 
                 escalation_msg = "Un momento, te comunico con un atendedor. 🙏"
                 await meta_client.send_text(phone, escalation_msg)
@@ -166,9 +165,9 @@ class HITLRouter:
                 logger.warning("conversation_escalated", phone=phone, reason=reason)
                 return
 
-            await db.execute_transaction([
-                ("UPDATE conversations SET sentiment_score=?, confidence=? WHERE phone=?", (sentiment_result["score"], sentiment_result["confidence"], phone)),
-            ])
+            await db.update_conversation_sentiment(
+                phone, sentiment_result["score"], sentiment_result["confidence"]
+            )
 
             response_text = await order_state.parse_tags(phone, response_text)
             response_text = sanitize_llm_output(response_text)

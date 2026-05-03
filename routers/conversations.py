@@ -3,6 +3,7 @@ from typing import Any
 
 import structlog
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from core.events import emit
@@ -41,12 +42,12 @@ async def update_state(req: UpdateStateRequest) -> dict[str, Any]:
     if not conv:
         ops = [
             ("INSERT INTO conversations (phone, state, last_message_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
-            (req.phone, req.state)),
+             (req.phone, req.state)),
         ]
     else:
         ops = [
             ("UPDATE conversations SET state=?, requires_human_review=? WHERE phone=?",
-            (req.state, 1 if req.state != "BOT_ACTIVE" else 0, req.phone)),
+             (req.state, 1 if req.state != "BOT_ACTIVE" else 0, req.phone)),
         ]
 
     if old_state != req.state:
@@ -77,10 +78,7 @@ class ChangeAgentRequest(BaseModel):
 @router.post("/agent")
 async def change_agent(req: ChangeAgentRequest) -> dict[str, Any]:
     db = await get_db()
-    await db.execute(
-        "UPDATE conversations SET agent_id=? WHERE phone=?", (req.agent_id, req.phone)
-    )
-    await db.commit()
+    await db.set_conversation_agent(req.phone, req.agent_id)
     logger.info("agent_changed", phone=req.phone, agent_id=req.agent_id)
     return {"status": "ok", "agent_id": req.agent_id}
 
@@ -90,7 +88,7 @@ async def get_conversation(phone: str) -> Any:
     db = await get_db()
     conv = await db.get_conversation(phone)
     if not conv:
-        return {"error": "not_found"}
+        return JSONResponse(status_code=404, content={"error": "not_found"})
     return asdict(conv)
 
 
@@ -114,12 +112,7 @@ async def close_session(phone: str, req: CloseSessionRequest) -> dict[str, Any]:
     session_id = conv.current_session_id
     await db.close_session(session_id, reason="manual", summary=req.summary)
 
-    # Limpiar la referencia en la conversación
-    await db.execute(
-        "UPDATE conversations SET current_session_id=NULL, state='BOT_ACTIVE', requires_human_review=0 WHERE phone=?",
-        (phone,),
-    )
-    await db.commit()
+    await db.reset_conversation_session(phone)
 
     await refresh_active_conversations(db)
     await refresh_active_sessions(db)
