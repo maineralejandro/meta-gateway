@@ -1,8 +1,8 @@
-import sqlite3
 import re
-import os
-import structlog
+import sqlite3
 from pathlib import Path
+
+import structlog
 
 logger = structlog.get_logger()
 
@@ -12,7 +12,7 @@ MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 ALTER_RE = re.compile(r"^\s*ALTER\s+TABLE", re.IGNORECASE)
 
 
-def run_migrations(db_path: str):
+def run_migrations(db_path: str) -> None:
     """
     Ejecuta todas las migraciones pendientes en orden.
     Esta función usa sqlite3 síncrono (no aiosqlite) porque se ejecuta
@@ -59,7 +59,7 @@ def run_migrations(db_path: str):
             if not stripped:
                 continue
             # Eliminar líneas de comentarios para evaluar el contenido real
-            lines = [l for l in stripped.split("\n") if not l.strip().startswith("--")]
+            lines = [ln for ln in stripped.split("\n") if not ln.strip().startswith("--")]
             clean = "\n".join(lines).strip()
             if not clean:
                 continue

@@ -1,7 +1,10 @@
-import aiosqlite
+import asyncio
 import os
-import sqlite3
 from pathlib import Path
+from typing import Any
+
+import aiosqlite
+
 from core.config import settings
 from db.models import (
     Agent,
@@ -22,48 +25,56 @@ SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 
 class Database:
-    def __init__(self):
+    def __init__(self) -> None:
         self._conn: aiosqlite.Connection | None = None
+        self._init_lock = asyncio.Lock()
 
     async def _get_conn(self) -> aiosqlite.Connection:
-        if self._conn is None:
+        if self._conn is not None:
+            return self._conn
+        async with self._init_lock:
+            if self._conn is not None:
+                return self._conn
             os.makedirs(settings.DB_DIR, exist_ok=True)
             self._conn = await aiosqlite.connect(settings.DB_PATH)
             self._conn.row_factory = aiosqlite.Row
             await self._conn.execute("PRAGMA journal_mode=WAL")
             await self._conn.execute("PRAGMA foreign_keys=ON")
-        return self._conn
+            await self._conn.execute("PRAGMA busy_timeout=5000")
+            return self._conn
 
-    async def execute(self, query: str, params: tuple = ()):
+    async def execute(self, query: str, params: tuple[Any, ...] = ()) -> None:
         conn = await self._get_conn()
         await conn.execute(query, params)
 
-    async def executemany(self, query: str, params: list[tuple]):
+    async def executemany(self, query: str, params: list[tuple[Any, ...]]) -> None:
         conn = await self._get_conn()
         await conn.executemany(query, params)
 
-    async def fetchone(self, query: str, params: tuple = ()):
+    async def fetchone(self, query: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
         conn = await self._get_conn()
         cursor = await conn.execute(query, params)
         return await cursor.fetchone()
 
-    async def fetchall(self, query: str, params: tuple = ()):
+    async def fetchall(self, query: str, params: tuple[Any, ...] = ()) -> list[aiosqlite.Row]:
         conn = await self._get_conn()
         cursor = await conn.execute(query, params)
-        return await cursor.fetchall()
+        rows = await cursor.fetchall()
+        return list(rows)
 
-    async def commit(self):
+    async def commit(self) -> None:
         if self._conn:
             await self._conn.commit()
 
-    async def execute_transaction(self, operations: list[tuple[str, tuple]]):
+    async def execute_transaction(self, operations: list[tuple[str, tuple[Any, ...]]]) -> None:
         conn = await self._get_conn()
         try:
+            await conn.execute("BEGIN")
             for query, params in operations:
                 await conn.execute(query, params)
-            await conn.commit()
+            await conn.execute("COMMIT")
         except Exception:
-            await conn.rollback()
+            await conn.execute("ROLLBACK")
             raise
 
     async def get_conversation(self, phone: str) -> Conversation | None:
@@ -75,13 +86,14 @@ class Database:
         )
         return row_to_conversation(row)
 
-    async def get_all_conversations(self) -> list[Conversation]:
+    async def get_all_conversations(self, limit: int = 100, offset: int = 0) -> list[Conversation]:
         rows = await self.fetchall(
             """SELECT phone, contact_name, state, last_message_at,
-               requires_human_review, unread_count, sentiment_score, confidence, agent_id, current_session_id, created_at
-               FROM conversations ORDER BY last_message_at DESC"""
+            requires_human_review, unread_count, sentiment_score, confidence, agent_id, current_session_id, created_at
+            FROM conversations ORDER BY last_message_at DESC LIMIT ? OFFSET ?""",
+            (limit, offset),
         )
-        return [row_to_conversation(r) for r in rows]
+        return [c for r in rows if (c := row_to_conversation(r)) is not None]
 
     async def get_messages(self, phone: str, limit: int = 100, desc: bool = False) -> list[Message]:
         order = "DESC" if desc else "ASC"
@@ -90,7 +102,7 @@ class Database:
             FROM messages WHERE phone=? ORDER BY created_at {order} LIMIT ?""",
             (phone, limit),
         )
-        return [row_to_message(r) for r in rows]
+        return [m for r in rows if (m := row_to_message(r)) is not None]
 
     # --- Agent Methods ---
 
@@ -107,7 +119,7 @@ class Database:
 
     async def get_all_agents(self) -> list[Agent]:
         rows = await self.fetchall("SELECT * FROM agents ORDER BY name ASC")
-        return [row_to_agent(r) for r in rows if r]
+        return [a for r in rows if (a := row_to_agent(r)) is not None]
 
     async def upsert_agent(self, agent: Agent) -> int:
         if agent.id:
@@ -141,10 +153,11 @@ class Database:
                     agent.is_active,
                 ),
             )
-            await self.commit()
-            return cursor.lastrowid
+        await self.commit()
+        assert cursor.lastrowid is not None
+        return cursor.lastrowid
 
-    async def activate_agent(self, agent_id: int):
+    async def activate_agent(self, agent_id: int) -> None:
         await self.execute_transaction(
             [
                 ("UPDATE agents SET is_active=0", ()),
@@ -172,6 +185,7 @@ class Database:
             ),
         )
         await conn.commit()
+        assert cursor.lastrowid is not None
         return cursor.lastrowid
 
     async def get_decisions(self, phone: str, limit: int = 50) -> list[AgentDecision]:
@@ -182,7 +196,7 @@ class Database:
             ORDER BY ad.created_at DESC LIMIT ?""",
             (phone, limit),
         )
-        return [row_to_agent_decision(r) for r in rows if r]
+        return [d for r in rows if (d := row_to_agent_decision(r)) is not None]
 
     async def get_decision_for_message(self, message_id: int) -> AgentDecision | None:
         row = await self.fetchone(
@@ -200,7 +214,7 @@ class Database:
         )
         return row_to_memory(row)
 
-    async def upsert_memory(self, phone: str, summary: str, key_facts: str, total_count: int):
+    async def upsert_memory(self, phone: str, summary: str, key_facts: str, total_count: int) -> None:
         conn = await self._get_conn()
         await conn.execute(
             """INSERT INTO conversation_memory (phone, summary, key_facts, total_messages_summarized, updated_at)
@@ -237,6 +251,8 @@ class Database:
             (session_id, phone),
         )
         await conn.commit()
+        from core.metrics import refresh_active_sessions
+        await refresh_active_sessions(self)
         return session_id
 
     async def get_active_session(self, phone: str) -> Session | None:
@@ -246,15 +262,61 @@ class Database:
         )
         return row_to_session(row)
 
-    async def close_session(self, session_id: str, reason: str, summary: str = None):
+    async def close_session(self, session_id: str, reason: str, summary: str | None = None) -> None:
         conn = await self._get_conn()
         await conn.execute(
             "UPDATE sessions SET ended_at=CURRENT_TIMESTAMP, end_reason=?, summary=? WHERE id=?",
             (reason, summary, session_id),
         )
         await conn.commit()
+        from core.metrics import refresh_active_sessions
+        await refresh_active_sessions(self)
 
-    async def increment_session_message_count(self, session_id: str):
+    async def insert_message(
+        self,
+        phone: str,
+        direction: str,
+        source: str,
+        text: str,
+        session_id: str | None = None,
+        media_type: str | None = None,
+        media_url: str | None = None,
+        meta_message_id: str | None = None,
+    ) -> int:
+        conn = await self._get_conn()
+        cursor = await conn.execute(
+            """INSERT INTO messages (phone, direction, source, text, media_type, media_url, meta_message_id, session_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (phone, direction, source, text, media_type, media_url, meta_message_id, session_id),
+        )
+        await conn.commit()
+        assert cursor.lastrowid is not None
+        return cursor.lastrowid
+
+    async def save_order(self, phone: str, items_json: str, total: int) -> None:
+        conn = await self._get_conn()
+        await conn.execute(
+            """INSERT INTO orders (phone, items_json, total, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(phone) DO UPDATE SET
+            items_json=excluded.items_json, total=excluded.total, updated_at=CURRENT_TIMESTAMP""",
+            (phone, items_json, total),
+        )
+        await conn.commit()
+
+    async def load_order(self, phone: str) -> tuple[str, int] | None:
+        row = await self.fetchone(
+            "SELECT items_json, total FROM orders WHERE phone=?",
+            (phone,),
+        )
+        if row:
+            return row["items_json"], row["total"]
+        return None
+
+    async def delete_order(self, phone: str) -> None:
+        await self.execute("DELETE FROM orders WHERE phone=?", (phone,))
+
+    async def increment_session_message_count(self, session_id: str) -> None:
         conn = await self._get_conn()
         await conn.execute(
             "UPDATE sessions SET message_count = message_count + 1 WHERE id=?",
@@ -262,7 +324,7 @@ class Database:
         )
         await conn.commit()
 
-    async def close(self):
+    async def close(self) -> None:
         if self._conn:
             await self._conn.close()
             self._conn = None
@@ -271,7 +333,7 @@ class Database:
 db = Database()
 
 
-async def init_db():
+async def init_db() -> None:
     from db.migrator import run_migrations
     os.makedirs(settings.DB_DIR, exist_ok=True)
     run_migrations(settings.DB_PATH)
@@ -282,5 +344,5 @@ async def get_db() -> Database:
     return db
 
 
-async def close_db():
+async def close_db() -> None:
     await db.close()
