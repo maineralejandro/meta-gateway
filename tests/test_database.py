@@ -1,9 +1,10 @@
+import os
+
+import aiosqlite
 import pytest
 import pytest_asyncio
-import sqlite3
-import aiosqlite
-from httpx import AsyncClient, ASGITransport
-from db.database import Database, init_db, close_db, get_db
+
+from db.database import Database
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS conversations (
@@ -64,9 +65,6 @@ async def db():
         os.remove(test_db_path)
 
 
-import os
-
-
 @pytest.mark.asyncio
 async def test_execute_transaction_commit(db):
     await db.execute_transaction([
@@ -82,7 +80,7 @@ async def test_execute_transaction_rollback(db):
     await db.execute_transaction([
         ("INSERT INTO conversations (phone, state) VALUES (?, 'BOT_ACTIVE')", ("+5699999",)),
     ])
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match="UNIQUE constraint"):
         await db.execute_transaction([
             ("INSERT INTO conversations (phone, state) VALUES (?, 'BOT_ACTIVE')", ("+5699999",)),
         ])

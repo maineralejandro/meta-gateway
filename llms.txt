@@ -1,0 +1,76 @@
+# llms.txt — Project Map for LLM Agents
+
+## Entry Point
+main.py                    FastAPI app, lifespan, CORS, auth middleware, health endpoint
+
+## Configuration
+core/config.py             Pydantic Settings, reads .env, all env vars
+.env.example               Template with REPLACE_ME placeholders
+
+## Database Layer
+db/database.py             Database class (async SQLite), all CRUD methods
+db/models.py               Dataclasses: Agent, Conversation, Message, Session, etc.
+db/migrator.py             Synchronous migration runner (sqlite3, not aiosqlite)
+db/migrations/000_baseline.sql      schema_migrations control table
+db/migrations/001_initial_schema.sql agents, conversations, messages, escalation_events, agent_decisions
+db/migrations/002_sessions.sql       sessions table + current_session_id + session_id columns
+db/migrations/003_conversation_memory.sql  conversation_memory table
+db/migrations/004_order_tags_system_prompt.sql  Updated system prompt with ORDER_ADD/REMOVE/CLEAR tags
+db/migrations/005_webhook_idempotency.sql  UNIQUE index on meta_message_id
+
+## Core Logic
+core/hitl_router.py        HITLRouter: per-phone lock, sentiment check, escalation decision, order tag parsing, bot reply
+core/inference.py          InferenceEngine: LLM client (NVIDIA NIM), 3 retries with backoff (1s/2s/4s), 30s timeout, fallback responses
+core/memory.py             MemoryManager: context window (16 msgs), summarization (every 15 msgs), order state injection
+core/sentiment.py          SentimentAnalyzer: LLM-based with heuristic fallback (keywords, caps, exclamations)
+core/order_state.py        OrderState: in-memory per-phone order tracking, MENU_ITEMS dict, [ORDER_ADD/REMOVE/CLEAR] tags
+core/sessions.py           SessionManager: get_or_create with 4h timeout, clears order_state on session expiry
+core/security.py           verify_meta_signature (HMAC-SHA256), RateLimiter (30/min/phone), sanitize_llm_output
+core/meta_client.py        MetaAPIClient: WhatsApp message sending, health check
+
+## API Routes
+routers/webhook.py         GET verify + POST receive: dedup, rate limit, session, _safe_process wrapper
+routers/conversations.py   CRUD: list, get, update state, reset unread, change agent
+routers/messages.py        List messages, send manual message
+routers/agents.py          CRUD: list, get, create, update, activate agent
+routers/ws.py              WebSocket endpoint, ConnectionManager (broadcast, send_to_one)
+
+## Dashboard (Next.js 14)
+dashboard/pages/index.tsx           Main layout: ConversationList + ChatPanel
+dashboard/components/AgentEditor.tsx   Edit system prompt, escalation marker, fallbacks
+dashboard/components/ChatPanel.tsx     Message thread + send input
+dashboard/components/ConversationList.tsx  Sidebar list with state badges
+dashboard/components/StateToggle.tsx   BOT_ACTIVE / PENDING_APPROVAL / HUMAN_ONLY
+dashboard/components/MessageInput.tsx  Text input for manual human replies
+dashboard/components/ErrorBanner.tsx    Global error display
+dashboard/components/NotificationBanner.tsx  Toast notifications
+dashboard/hooks/useWebSocket.ts        WS client with exponential backoff reconnect
+dashboard/lib/api.ts                   Fetch wrapper with auth token
+
+## Tests
+tests/conftest.py                      Env vars setup
+tests/test_conversational.py           23 end-to-end message flow tests (mocked LLM)
+tests/test_api.py                      8 FastAPI endpoint tests
+tests/test_database.py                 3 DB operation tests
+tests/test_final_integration.py        1 full conversation lifecycle test
+tests/test_inference.py                2 inference + fallback tests
+tests/test_memory.py                   10 memory + order state tests
+tests/test_migrator.py                 3 migration system tests
+tests/test_security.py                 7 security tests (HMAC, rate limit, sanitize)
+tests/test_sentiment.py                10 sentiment analysis tests
+tests/test_sessions.py                 5 session lifecycle tests
+
+## Scripts
+start_all.sh               tmux: uvicorn + next dev + ngrok
+start_all.ps1               Windows PowerShell equivalent
+scratch/check_db.py         Debug: inspect SQLite DB contents
+scratch/check_db_v2.py      Debug: inspect DB with more detail
+scratch/get_models.py       Fetch available models from NVIDIA NIM API
+debug_settings.py           Print all config values (debug only)
+
+## Documentation
+docs/plan.md                              Original architecture plan (5 phases)
+docs/1_layered_memory_implementation_plan.md   Layered memory design
+docs/2_sessions_timeout_implementation_plan.md  Session timeout design
+docs/3_meta_signature_validation_plan.md        Webhook security design
+docs/4_db_migration_system_plan.md              Migration system design

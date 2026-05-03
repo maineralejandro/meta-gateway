@@ -1,10 +1,13 @@
-from fastapi import APIRouter
-from db.database import get_db
-from db.models import Conversation
-from routers.ws import manager
-from pydantic import BaseModel
 from dataclasses import asdict
+from typing import Any
+
 import structlog
+from fastapi import APIRouter
+from pydantic import BaseModel
+
+from core.events import emit
+from core.metrics import refresh_active_conversations, refresh_active_sessions
+from db.database import get_db
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
@@ -20,28 +23,30 @@ class CloseSessionRequest(BaseModel):
 
 
 @router.get("")
-async def get_conversations():
+async def get_conversations(limit: int = 100, offset: int = 0) -> Any:
+    limit = min(limit, 500)
     db = await get_db()
-    conversations = await db.get_all_conversations()
+    conversations = await db.get_all_conversations(limit=limit, offset=offset)
     return [asdict(c) for c in conversations]
 
 
 @router.post("/state")
-async def update_state(req: UpdateStateRequest):
+async def update_state(req: UpdateStateRequest) -> dict[str, Any]:
     db = await get_db()
 
     conv = await db.get_conversation(req.phone)
     old_state = conv.state if conv else "BOT_ACTIVE"
 
+    ops: list[tuple[str, tuple[Any, ...]]] = []
     if not conv:
         ops = [
             ("INSERT INTO conversations (phone, state, last_message_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
-             (req.phone, req.state)),
+            (req.phone, req.state)),
         ]
     else:
         ops = [
             ("UPDATE conversations SET state=?, requires_human_review=? WHERE phone=?",
-             (req.state, 1 if req.state != "BOT_ACTIVE" else 0, req.phone)),
+            (req.state, 1 if req.state != "BOT_ACTIVE" else 0, req.phone)),
         ]
 
     if old_state != req.state:
@@ -52,8 +57,9 @@ async def update_state(req: UpdateStateRequest):
 
     await db.execute_transaction(ops)
 
-    await manager.send_to_all({
-        "type": "state-changed",
+    await refresh_active_conversations(db)
+
+    await emit("state-changed", {
         "phone": req.phone,
         "state": req.state,
         "old_state": old_state,
@@ -69,7 +75,7 @@ class ChangeAgentRequest(BaseModel):
 
 
 @router.post("/agent")
-async def change_agent(req: ChangeAgentRequest):
+async def change_agent(req: ChangeAgentRequest) -> dict[str, Any]:
     db = await get_db()
     await db.execute(
         "UPDATE conversations SET agent_id=? WHERE phone=?", (req.agent_id, req.phone)
@@ -80,7 +86,7 @@ async def change_agent(req: ChangeAgentRequest):
 
 
 @router.get("/{phone}")
-async def get_conversation(phone: str):
+async def get_conversation(phone: str) -> Any:
     db = await get_db()
     conv = await db.get_conversation(phone)
     if not conv:
@@ -89,7 +95,7 @@ async def get_conversation(phone: str):
 
 
 @router.post("/{phone}/reset-unread")
-async def reset_unread(phone: str):
+async def reset_unread(phone: str) -> dict[str, str]:
     db = await get_db()
     await db.execute_transaction([
         ("UPDATE conversations SET unread_count=0 WHERE phone=?", (phone,)),
@@ -98,7 +104,7 @@ async def reset_unread(phone: str):
 
 
 @router.post("/{phone}/close-session")
-async def close_session(phone: str, req: CloseSessionRequest):
+async def close_session(phone: str, req: CloseSessionRequest) -> dict[str, Any]:
     db = await get_db()
     conv = await db.get_conversation(phone)
 
@@ -114,6 +120,9 @@ async def close_session(phone: str, req: CloseSessionRequest):
         (phone,),
     )
     await db.commit()
+
+    await refresh_active_conversations(db)
+    await refresh_active_sessions(db)
 
     logger.info("session_closed_manually", phone=phone, session_id=session_id)
     return {"status": "ok", "session_id": session_id}

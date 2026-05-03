@@ -1,20 +1,19 @@
+import asyncio
+import hashlib
+import hmac
+import json
+import os
+from dataclasses import dataclass
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 import pytest_asyncio
-import os
-import json
-import asyncio
-import hmac
-import hashlib
-from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, patch, MagicMock
-from dataclasses import dataclass
 
 from core.config import settings
-from core.order_state import order_state, OrderState, MENU_ITEMS
-from core.memory import memory_manager, WINDOW_SIZE
+from core.memory import WINDOW_SIZE, memory_manager
+from core.order_state import order_state
 from core.sentiment import SentimentAnalyzer
-from core.security import sanitize_llm_output
-from db.database import db, init_db, close_db, get_db
+from db.database import close_db, db, init_db
 from routers.webhook import receive_webhook
 
 
@@ -25,13 +24,14 @@ async def setup_session_db():
     test_db = f"./tests/data/conversational_{suffix}.db"
     settings.DB_PATH = test_db
     settings.META_APP_SECRET = "test_secret"
+    settings.SKIP_STARTUP_VALIDATION = True
 
     os.makedirs("./tests/data", exist_ok=True)
     if os.path.exists(test_db):
         os.remove(test_db)
 
     await init_db()
-    with open("db/schema.sql", "r") as f:
+    with open("db/schema.sql") as f:
         schema = f.read()
     conn = await db._get_conn()
     await conn.execute("PRAGMA foreign_keys=OFF")
@@ -45,22 +45,22 @@ async def setup_session_db():
 
 @pytest_asyncio.fixture(autouse=True)
 async def clean_db():
-    conn = await db._get_conn()
-    await conn.execute("PRAGMA foreign_keys=OFF")
     await db.execute("DELETE FROM agent_decisions")
     await db.execute("DELETE FROM escalation_events")
     await db.execute("DELETE FROM messages")
     await db.execute("DELETE FROM conversation_memory")
-    await db.execute("DELETE FROM conversations")
+    await db.execute("DELETE FROM orders")
+    await db.execute("UPDATE conversations SET current_session_id = NULL")
     await db.execute("DELETE FROM sessions")
+    await db.execute("DELETE FROM conversations")
     await db.execute("DELETE FROM agents")
     await db.execute(
         "INSERT INTO agents (id, name, system_prompt, escalation_marker) "
         "VALUES (1, 'Hermes Bot', 'Eres Hermes. Usa tags [ORDER_ADD:key:qty].', 'ESCALATE_TO_HUMAN')"
     )
     await db.commit()
-    await conn.execute("PRAGMA foreign_keys=ON")
     order_state._orders.clear()
+    order_state._loaded_phones.clear()
 
 
 @dataclass
@@ -82,30 +82,32 @@ async def turn(
     sentiment_result: dict | None = None,
 ) -> TurnResult:
     sent_texts = []
-    ws_messages = []
+    emitted_events = []
 
     async def capture_send_text(p, t):
         sent_texts.append(t)
 
-    async def capture_ws(msg):
-        ws_messages.append(msg)
+    async def capture_emit(event_type, payload):
+        emitted_events.append({"type": event_type, **payload})
 
     with patch(
         "core.hitl_router.inference_engine"
     ) as mock_engine, patch(
         "core.hitl_router.meta_client"
     ) as mock_meta, patch(
-        "core.hitl_router.manager"
-    ) as mock_ws, patch(
+        "core.hitl_router.emit", new=AsyncMock()
+    ) as mock_emit, patch(
         "core.hitl_router.sentiment_analyzer"
     ) as mock_sentiment, patch(
-        "core.hitl_router.asyncio.create_task"
-    ) as mock_create_task:
+        "core.hitl_router.track_task"
+    ), patch(
+        "core.hitl_router._safe_summarize", new=AsyncMock()
+    ):
 
         mock_engine.generate = AsyncMock(return_value=(llm_response, llm_escalate))
         mock_engine._current_agent = None
         mock_meta.send_text = capture_send_text
-        mock_ws.send_to_all = capture_ws
+        mock_emit.side_effect = capture_emit
 
         if sentiment_result is not None:
             mock_sentiment.analyze = AsyncMock(return_value=sentiment_result)
@@ -115,13 +117,11 @@ async def turn(
             analyzer._available = False
             mock_sentiment.analyze = analyzer.analyze
 
-        mock_create_task.side_effect = lambda coro, *a, **kw: coro.close()
-
         from core.hitl_router import hitl_router
         await hitl_router.process_inbound_message(phone, text)
 
     conv = await db.get_conversation(phone)
-    order = order_state.get_order(phone)
+    order = await order_state.get_order(phone)
 
     decision_row = await db.fetchone(
         "SELECT * FROM agent_decisions WHERE phone=? ORDER BY created_at DESC LIMIT 1",
@@ -130,11 +130,11 @@ async def turn(
 
     return TurnResult(
         sent_text=sent_texts[0] if sent_texts else None,
-        escalated=any(m.get("type") == "escalated" for m in ws_messages),
+        escalated=any(e.get("type") == "escalated" for e in emitted_events),
         order=order,
         conv_state=conv.state if conv else "BOT_ACTIVE",
         decision=dict(decision_row) if decision_row else None,
-        ws_messages=ws_messages,
+        ws_messages=emitted_events,
     )
 
 
@@ -184,7 +184,7 @@ async def test_simple_order_accumulation():
 async def test_order_remove_partial():
     phone = "+56910000002"
     await _ensure_conversation(phone)
-    order_state.add_item(phone, "completo_normal", 4)
+    await order_state.add_item(phone, "completo_normal", 4)
 
     r = await turn(
         phone,
@@ -200,8 +200,8 @@ async def test_order_remove_partial():
 async def test_order_remove_all_quantity():
     phone = "+56910000003"
     await _ensure_conversation(phone)
-    order_state.add_item(phone, "coca_lata", 2)
-    order_state.add_item(phone, "completo_normal", 1)
+    await order_state.add_item(phone, "coca_lata", 2)
+    await order_state.add_item(phone, "completo_normal", 1)
 
     r = await turn(
         phone,
@@ -218,8 +218,8 @@ async def test_order_remove_all_quantity():
 async def test_order_clear():
     phone = "+56910000004"
     await _ensure_conversation(phone)
-    order_state.add_item(phone, "completo_vienesa_gigante", 3)
-    order_state.add_item(phone, "papas_mediana", 2)
+    await order_state.add_item(phone, "completo_vienesa_gigante", 3)
+    await order_state.add_item(phone, "papas_mediana", 2)
 
     r = await turn(
         phone,
@@ -228,7 +228,7 @@ async def test_order_clear():
     )
     assert r.order["items"] == []
     assert r.order["total"] == 0
-    assert order_state.format_for_context(phone) is None
+    assert await order_state.format_for_context(phone) is None
 
 
 @pytest.mark.asyncio
@@ -438,8 +438,8 @@ async def test_order_state_injected_in_context():
     )
     await db.commit()
 
-    order_state.add_item(phone, "completo_vienesa_gigante", 3)
-    order_state.add_item(phone, "papas_mediana", 2)
+    await order_state.add_item(phone, "completo_vienesa_gigante", 3)
+    await order_state.add_item(phone, "papas_mediana", 2)
 
     context = await memory_manager.build_context(phone)
     system_msgs = [c for c in context if c["role"] == "system" and "Pedido actual" in c["content"]]
@@ -455,11 +455,11 @@ async def test_multiple_phones_independent_orders():
     await _ensure_conversation(phone_a)
     await _ensure_conversation(phone_b)
 
-    order_state.add_item(phone_a, "completo_normal", 2)
-    order_state.add_item(phone_b, "chorrillana", 1)
+    await order_state.add_item(phone_a, "completo_normal", 2)
+    await order_state.add_item(phone_b, "chorrillana", 1)
 
-    order_a = order_state.get_order(phone_a)
-    order_b = order_state.get_order(phone_b)
+    order_a = await order_state.get_order(phone_a)
+    order_b = await order_state.get_order(phone_b)
 
     assert len(order_a["items"]) == 1
     assert order_a["items"][0]["key"] == "completo_normal"
@@ -497,18 +497,22 @@ async def test_error_handling_does_not_crash():
 
     ws_messages = []
 
-    async def capture_ws(msg):
-        ws_messages.append(msg)
+    async def capture_emit(event_type, payload):
+        ws_messages.append({"type": event_type, **payload})
 
     with patch(
         "core.hitl_router.inference_engine"
     ) as mock_engine, patch(
         "core.hitl_router.meta_client"
     ) as mock_meta, patch(
-        "core.hitl_router.manager"
-    ) as mock_ws, patch(
+        "core.hitl_router.emit", new=AsyncMock()
+    ) as mock_emit, patch(
         "core.hitl_router.sentiment_analyzer"
-    ) as mock_sentiment:
+    ) as mock_sentiment, patch(
+        "core.hitl_router.track_task"
+    ), patch(
+        "core.hitl_router._safe_summarize", new=AsyncMock()
+    ):
 
         mock_sentiment.analyze = AsyncMock(return_value={
             "sentiment": "neutral", "score": 0.5, "confidence": 0.8
@@ -516,7 +520,7 @@ async def test_error_handling_does_not_crash():
         mock_engine.generate = AsyncMock(side_effect=RuntimeError("LLM down"))
         mock_engine._current_agent = None
         mock_meta.send_text = AsyncMock()
-        mock_ws.send_to_all = capture_ws
+        mock_emit.side_effect = capture_emit
 
         from core.hitl_router import hitl_router
         await hitl_router.process_inbound_message(phone, "algo")
@@ -543,17 +547,17 @@ async def test_human_only_skips_processing():
     }).encode()
     sig = "sha256=" + hmac.new(b"test_secret", body, hashlib.sha256).hexdigest()
 
-    with patch("routers.webhook.process_inbound_message", new_callable=AsyncMock) as mock_process:
+    with patch("routers.webhook._safe_process", new_callable=AsyncMock) as mock_process:
         request = MagicMock()
         request.body = AsyncMock(return_value=body)
         request.headers = {"X-Hub-Signature-256": sig}
 
         result = await receive_webhook(request)
 
-    if hasattr(result, "status_code"):
-        pytest.fail(f"Got HTTP {result.status_code} instead of JSON response")
-    assert result["status"] == "pending_human"
-    mock_process.assert_not_called()
+        if hasattr(result, "status_code"):
+            pytest.fail(f"Got HTTP {result.status_code} instead of JSON response")
+        assert result["status"] == "pending_human"
+        mock_process.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -573,7 +577,7 @@ async def test_pending_approval_queueing():
     }).encode()
     sig = "sha256=" + hmac.new(b"test_secret", body, hashlib.sha256).hexdigest()
 
-    with patch("routers.webhook.process_inbound_message", new_callable=AsyncMock) as mock_process:
+    with patch("routers.webhook._safe_process", new_callable=AsyncMock) as mock_process:
         request = MagicMock()
         request.body = AsyncMock(return_value=body)
         request.headers = {"X-Hub-Signature-256": sig}
@@ -666,3 +670,37 @@ async def test_regression_original_incident():
     # Verificar que NUNCA se escalo en toda la conversacion
     conv = await db.get_conversation(phone)
     assert conv.state == "BOT_ACTIVE"
+
+
+# ============================================================
+# 23: WEBHOOK IDEMPOTENCY
+# ============================================================
+
+
+@pytest.mark.asyncio
+async def test_webhook_duplicate_message_ignored():
+    phone = "+56910000023"
+    await _ensure_conversation(phone)
+
+    body = json.dumps({
+        "object": "whatsapp_business_account",
+        "entry": [{"changes": [{"value": {
+            "messages": [{"from": phone, "id": "wamid_dup_test_001", "text": {"body": "Hola"}, "type": "text"}]
+        }}]}]
+    }).encode()
+    sig = "sha256=" + hmac.new(b"test_secret", body, hashlib.sha256).hexdigest()
+
+    request = MagicMock()
+    request.body = AsyncMock(return_value=body)
+    request.headers = {"X-Hub-Signature-256": sig}
+
+    with patch("routers.webhook._safe_process", new_callable=AsyncMock) as mock_process:
+        result1 = await receive_webhook(request)
+        assert result1["status"] == "processing"
+        await asyncio.sleep(0)
+        assert mock_process.call_count == 1
+
+    with patch("routers.webhook._safe_process", new_callable=AsyncMock) as mock_process:
+        result2 = await receive_webhook(request)
+        assert result2["status"] == "duplicate"
+        mock_process.assert_not_called()

@@ -1,27 +1,30 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
-from typing import List
-from core.config import settings
+import asyncio
+from typing import Any
+
 import structlog
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+from core.config import settings
 
 logger = structlog.get_logger()
 router = APIRouter()
 
 
 class WebSocketConnectionManager:
-    def __init__(self):
-        self.active_connections: List[WebSocket] = []
+    def __init__(self) -> None:
+        self.active_connections: list[WebSocket] = []
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
         self.active_connections.append(websocket)
         logger.info("ws_connected", total=len(self.active_connections))
 
-    def disconnect(self, websocket: WebSocket):
+    def disconnect(self, websocket: WebSocket) -> None:
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
         logger.info("ws_disconnected", total=len(self.active_connections))
 
-    async def send_to_all(self, message: dict):
+    async def send_to_all(self, message: dict[str, Any]) -> None:
         dead = []
         for connection in self.active_connections:
             try:
@@ -31,7 +34,7 @@ class WebSocketConnectionManager:
         for c in dead:
             self.disconnect(c)
 
-    async def send_to_one(self, websocket: WebSocket, message: dict):
+    async def send_to_one(self, websocket: WebSocket, message: dict[str, Any]) -> None:
         try:
             await websocket.send_json(message)
         except Exception:
@@ -42,10 +45,18 @@ manager = WebSocketConnectionManager()
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str = Query(default="")):
-    if settings.DASHBOARD_TOKEN and token != settings.DASHBOARD_TOKEN:
-        await websocket.close(code=4001, reason="Invalid token")
-        return
+async def websocket_endpoint(websocket: WebSocket) -> None:
+    await websocket.accept()
+    if settings.DASHBOARD_TOKEN:
+        try:
+            data = await asyncio.wait_for(websocket.receive_json(), timeout=5)
+        except Exception:
+            await websocket.close(code=4001, reason="Auth timeout")
+            return
+        if data.get("type") != "auth" or data.get("token") != settings.DASHBOARD_TOKEN:
+            await websocket.close(code=4001, reason="Invalid token")
+            return
+        await websocket.send_json({"type": "auth_ok"})
     await manager.connect(websocket)
     try:
         while True:

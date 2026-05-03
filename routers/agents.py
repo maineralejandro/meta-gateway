@@ -1,9 +1,12 @@
+
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
-from db.database import get_db, Database
-from db.models import Agent
+
 from core.inference import inference_engine
+from db.database import Database, get_db
+from db.models import Agent
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -19,60 +22,60 @@ class AgentCreate(AgentBase):
     pass
 
 class AgentUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    system_prompt: Optional[str] = None
-    escalation_marker: Optional[str] = None
-    fallback_responses: Optional[str] = None
-    is_active: Optional[int] = None
+    name: str | None = None
+    description: str | None = None
+    system_prompt: str | None = None
+    escalation_marker: str | None = None
+    fallback_responses: str | None = None
+    is_active: int | None = None
 
 class AgentResponse(AgentBase):
     id: int
 
-@router.get("", response_model=List[AgentResponse])
-async def list_agents(db: Database = Depends(get_db)):
+@router.get("", response_model=list[AgentResponse])
+async def list_agents(db: Database = Depends(get_db)) -> Any:
     agents = await db.get_all_agents()
     return agents
 
 @router.get("/{agent_id}", response_model=AgentResponse)
-async def get_agent(agent_id: int, db: Database = Depends(get_db)):
+async def get_agent(agent_id: int, db: Database = Depends(get_db)) -> Any:
     agent = await db.get_agent(agent_id=agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     return agent
 
 @router.post("", response_model=AgentResponse)
-async def create_agent(agent_in: AgentCreate, db: Database = Depends(get_db)):
-    agent = Agent(**agent_in.dict())
+async def create_agent(agent_in: AgentCreate, db: Database = Depends(get_db)) -> Any:
+    agent = Agent(**agent_in.model_dump())
     agent_id = await db.upsert_agent(agent)
     agent.id = agent_id
     return agent
 
 @router.put("/{agent_id}", response_model=AgentResponse)
-async def update_agent(agent_id: int, agent_in: AgentUpdate, db: Database = Depends(get_db)):
+async def update_agent(agent_id: int, agent_in: AgentUpdate, db: Database = Depends(get_db)) -> Any:
     existing = await db.get_agent(agent_id=agent_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Agent not found")
-    
-    update_data = agent_in.dict(exclude_unset=True)
+
+    update_data = agent_in.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(existing, field, value)
-    
+
     await db.upsert_agent(existing)
     return existing
 
 @router.post("/{agent_id}/activate")
-async def activate_agent(agent_id: int, db: Database = Depends(get_db)):
+async def activate_agent(agent_id: int, db: Database = Depends(get_db)) -> dict[str, str]:
     existing = await db.get_agent(agent_id=agent_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Agent not found")
-    
+
     await db.activate_agent(agent_id)
     await inference_engine.reload()
     return {"status": "success", "message": f"Agent {agent_id} activated"}
 
 @router.post("/{agent_id}/reload")
-async def reload_agent(agent_id: int):
+async def reload_agent(agent_id: int) -> dict[str, str]:
     # This specifically reloads the inference engine's cache
     # If the engine is using a different agent_id, it might not affect it unless it's the active one
     await inference_engine.reload()

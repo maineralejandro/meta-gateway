@@ -1,15 +1,16 @@
+import os
+import sqlite3
+import sys
+
+import aiosqlite
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-import sqlite3
-import aiosqlite
-import os
-import sys
+from httpx import ASGITransport, AsyncClient
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from main import app
 from db.database import db as global_db
+from main import app
 
 TEST_DB_PATH = "/tmp/hermes_test/test_api.db"
 
@@ -23,6 +24,7 @@ async def setup_test_db():
     from core.config import settings
     settings.DB_PATH = TEST_DB_PATH
     settings.DASHBOARD_TOKEN = "test_dashboard_token"
+    settings.SKIP_STARTUP_VALIDATION = True
 
     schema_path = os.path.join(os.path.dirname(__file__), "..", "db", "schema.sql")
     with open(schema_path) as f:

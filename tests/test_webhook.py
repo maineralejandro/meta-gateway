@@ -1,0 +1,311 @@
+import hashlib
+import hmac
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+
+def _make_signature(secret: str, body: bytes) -> str:
+    sig = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return f"sha256={sig}"
+
+
+@pytest.fixture
+def client():
+    from main import app
+    return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def mock_deps():
+    with patch("routers.webhook.verify_meta_signature", new_callable=AsyncMock, return_value=True), \
+         patch("routers.webhook.rate_limiter") as mock_rl, \
+         patch("routers.webhook.session_manager") as mock_sm, \
+         patch("routers.webhook.hitl_router") as mock_hitl, \
+         patch("routers.webhook.meta_client") as mock_mc, \
+         patch("routers.webhook.get_db") as mock_get_db, \
+         patch("routers.webhook.emit", new_callable=AsyncMock), \
+         patch("routers.webhook.track_task"), \
+         patch("routers.webhook.RATE_LIMITS", MagicMock()), \
+         patch("routers.webhook.WEBHOOK_DUPLICATES", MagicMock()):
+        mock_rl.is_allowed.return_value = True
+        mock_sm.get_or_create_session = AsyncMock(return_value=1)
+        mock_hitl.process_inbound_message = AsyncMock()
+        mock_mc.send_text = AsyncMock(return_value={"messages": [{"id": "wamid1"}]})
+
+        mock_db = MagicMock()
+        mock_db.fetchone = AsyncMock(return_value=("BOT_ACTIVE", False))
+        mock_db.insert_message = AsyncMock()
+        mock_db.execute_transaction = AsyncMock()
+        mock_db.increment_session_message_count = AsyncMock()
+        mock_get_db.return_value = mock_db
+
+        yield {
+            "db": mock_db,
+            "hitl": mock_hitl,
+            "meta_client": mock_mc,
+            "session_manager": mock_sm,
+            "rate_limiter": mock_rl,
+        }
+
+
+def test_verify_webhook_success(client):
+    with patch("routers.webhook.settings") as mock_settings:
+        mock_settings.WHATSAPP_VERIFY_TOKEN = "test-verify"
+        response = client.get("/webhook/whatsapp", params={
+            "hub.mode": "subscribe",
+            "hub.verify_token": "test-verify",
+            "hub.challenge": "challenge-123",
+        })
+    assert response.status_code == 200
+    assert response.text == "challenge-123"
+
+
+def test_verify_webhook_invalid_token(client):
+    with patch("routers.webhook.settings") as mock_settings:
+        mock_settings.WHATSAPP_VERIFY_TOKEN = "test-verify"
+        response = client.get("/webhook/whatsapp", params={
+            "hub.mode": "subscribe",
+            "hub.verify_token": "wrong-token",
+            "hub.challenge": "challenge-123",
+        })
+    assert response.status_code == 403
+
+
+def test_receive_webhook_text_message(client, mock_deps):
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "56912345678",
+                        "id": "wamid_test_001",
+                        "type": "text",
+                        "text": {"body": "Hola, quiero un menú"},
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "processing"
+
+
+def test_receive_webhook_rate_limited(client, mock_deps):
+    mock_deps["rate_limiter"].is_allowed.return_value = False
+
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "56912345678",
+                        "id": "wamid_test_002",
+                        "type": "text",
+                        "text": {"body": "spam"},
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "rate_limited"
+
+
+def test_receive_webhook_duplicate(client, mock_deps):
+    mock_deps["db"].insert_message = AsyncMock(
+        side_effect=Exception("UNIQUE constraint failed: meta_message_id")
+    )
+
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "56912345678",
+                        "id": "wamid_dup",
+                        "type": "text",
+                        "text": {"body": "Hola"},
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "duplicate"
+
+
+def test_receive_webhook_human_only(client, mock_deps):
+    mock_deps["db"].fetchone = AsyncMock(return_value=("HUMAN_ONLY", False))
+
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "56912345678",
+                        "id": "wamid_human",
+                        "type": "text",
+                        "text": {"body": "Necesito ayuda"},
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending_human"
+
+
+def test_receive_webhook_pending_approval(client, mock_deps):
+    mock_deps["db"].fetchone = AsyncMock(return_value=("PENDING_APPROVAL", False))
+
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "56912345678",
+                        "id": "wamid_pending",
+                        "type": "text",
+                        "text": {"body": "Hola"},
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending_approval"
+
+
+def test_receive_webhook_new_conversation(client, mock_deps):
+    mock_deps["db"].fetchone = AsyncMock(return_value=None)
+
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "56999999999",
+                        "id": "wamid_new",
+                        "type": "text",
+                        "text": {"body": "Hola"},
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "processing"
+
+
+def test_receive_webhook_image_message(client, mock_deps):
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "56912345678",
+                        "id": "wamid_img",
+                        "type": "image",
+                        "image": {"id": "media_id_123"},
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "processing"
+
+
+def test_receive_webhook_location_message(client, mock_deps):
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "56912345678",
+                        "id": "wamid_loc",
+                        "type": "location",
+                        "location": {
+                            "name": "Home",
+                            "latitude": -33.45,
+                            "longitude": -70.67,
+                        },
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+
+
+def test_receive_webhook_status_update(client, mock_deps):
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "statuses": [{
+                        "status": "delivered",
+                        "id": "wamid_status",
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_receive_webhook_empty_entries(client, mock_deps):
+    body = {"entry": []}
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_receive_webhook_requires_human_review(client, mock_deps):
+    mock_deps["db"].fetchone = AsyncMock(return_value=("BOT_ACTIVE", True))
+
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "56912345678",
+                        "id": "wamid_review",
+                        "type": "text",
+                        "text": {"body": "Ayuda"},
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending_human"
+
+
+def test_receive_webhook_invalid_signature(client):
+    with patch("routers.webhook.verify_meta_signature", new_callable=AsyncMock, return_value=False):
+        response = client.post("/webhook/whatsapp", json={"entry": []})
+    assert response.status_code == 403

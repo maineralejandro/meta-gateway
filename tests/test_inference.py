@@ -1,17 +1,18 @@
-import pytest
 import os
-import sys
 import sqlite3
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import aiosqlite
-from unittest.mock import AsyncMock, patch
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from core.inference import InferenceEngine
 from db.database import db as global_db
-from db.models import Agent
 
 TEST_DB_PATH = "/tmp/hermes_test/test_inference.db"
+
 
 @pytest.fixture(autouse=True)
 async def setup_test_db():
@@ -40,55 +41,333 @@ async def setup_test_db():
 
     if global_db._conn:
         await global_db._conn.close()
-        global_db._conn = None
+    global_db._conn = None
     if os.path.exists(TEST_DB_PATH):
         os.remove(TEST_DB_PATH)
 
+
 @pytest.mark.asyncio
 async def test_inference_loads_from_db():
-    # Insert a test agent
     await global_db.execute(
         "INSERT INTO agents (name, system_prompt, is_active) VALUES (?, ?, ?)",
-        ("Test Bot", "You are a test prompt.", 1)
+        ("Test Bot", "You are a test prompt.", 1),
     )
     await global_db.commit()
 
     engine = InferenceEngine()
-    
-    # Mock OpenAI client
-    mock_client = AsyncMock()
-    mock_response = AsyncMock()
-    mock_response.choices = [AsyncMock(message=AsyncMock(content="Hello!"))]
-    mock_client.chat.completions.create.return_value = mock_response
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock(message=MagicMock(content="Hello!"))]
+    mock_response.usage = None
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-    with patch.object(engine, '_get_client', return_value=mock_client):
-        # Set available to True for test
+    with patch.object(engine, "_get_client", return_value=mock_client):
         engine._available = True
-        
         response, escalate = await engine.generate("Hi")
-        
-        # Verify it used the prompt from DB
-        args, kwargs = mock_client.chat.completions.create.call_args
-        messages = kwargs['messages']
-        assert messages[0]['content'] == "You are a test prompt."
-        assert response == "Hello!"
-        assert escalate is False
+
+    _args, kwargs = mock_client.chat.completions.create.call_args
+    messages = kwargs["messages"]
+    assert messages[0]["content"].startswith("You are a test prompt.")
+    assert "customer_message" in messages[0]["content"]
+    assert messages[-1]["content"].startswith("<customer_message>")
+    assert response == "Hello!"
+    assert escalate is False
+
 
 @pytest.mark.asyncio
 async def test_inference_fallback_from_db():
-    # Insert agent with custom fallbacks
     fallbacks = '{"greeting": "Custom hello", "default": "Custom what?"}'
     await global_db.execute(
         "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES (?, ?, ?, ?)",
-        ("Fallback Bot", "...", fallbacks, 1)
+        ("Fallback Bot", "...", fallbacks, 1),
     )
     await global_db.commit()
 
     engine = InferenceEngine()
-    engine._available = False # Force fallback
-    
-    response, escalate = await engine.generate("hola")
+    engine._available = False
+
+    response, _escalate = await engine.generate("hola")
     assert response == "Custom hello"
-    
-    response, escalate = await engine.generate("unknown")
+
+    response, _escalate = await engine.generate("unknown")
     assert response == "Custom what?"
+
+
+@pytest.mark.asyncio
+async def test_escalation_marker_detected():
+    await global_db.execute(
+        "INSERT INTO agents (name, system_prompt, escalation_marker, is_active) VALUES (?, ?, ?, ?)",
+        ("Esc Bot", "Be helpful.", "ESCALATE_TO_HUMAN", 1),
+    )
+    await global_db.commit()
+
+    engine = InferenceEngine()
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock(message=MagicMock(content="ESCALATE_TO_HUMAN I need help"))]
+    mock_response.usage = None
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+    with patch.object(engine, "_get_client", return_value=mock_client):
+        engine._available = True
+        response, escalated = await engine.generate("I'm upset")
+
+    assert escalated is True
+    assert "ESCALATE_TO_HUMAN" not in response
+    assert "I need help" in response
+
+
+@pytest.mark.asyncio
+async def test_escalation_marker_empty_clean():
+    await global_db.execute(
+        "INSERT INTO agents (name, system_prompt, escalation_marker, is_active) VALUES (?, ?, ?, ?)",
+        ("Esc Bot2", "Be helpful.", "ESCALATE_TO_HUMAN", 1),
+    )
+    await global_db.commit()
+
+    engine = InferenceEngine()
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock(message=MagicMock(content="  ESCALATE_TO_HUMAN  "))]
+    mock_response.usage = None
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+    with patch.object(engine, "_get_client", return_value=mock_client):
+        engine._available = True
+        response, escalated = await engine.generate("help")
+
+    assert escalated is True
+    assert "atendedor" in response
+
+
+@pytest.mark.asyncio
+async def test_retry_on_rate_limit():
+    from openai import RateLimitError
+
+    await global_db.execute(
+        "INSERT INTO agents (name, system_prompt, is_active) VALUES (?, ?, ?)",
+        ("Retry Bot", "Be helpful.", 1),
+    )
+    await global_db.commit()
+
+    engine = InferenceEngine()
+    mock_client = MagicMock()
+
+    good_response = MagicMock()
+    good_response.choices = [MagicMock(message=MagicMock(content="Hello!"))]
+    good_response.usage = None
+
+    mock_client.chat.completions.create = AsyncMock(side_effect=[
+        RateLimitError(
+            message="rate limited",
+            response=MagicMock(status_code=429, headers={}),
+            body=None,
+        ),
+        good_response,
+    ])
+
+    with patch.object(engine, "_get_client", return_value=mock_client), \
+         patch("core.inference.asyncio.sleep", new_callable=AsyncMock):
+        engine._available = True
+        response, _escalated = await engine.generate("Hi")
+
+    assert response == "Hello!"
+    assert mock_client.chat.completions.create.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_all_retries_fail_falls_back():
+    from openai import RateLimitError
+
+    await global_db.execute(
+        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES (?, ?, ?, ?)",
+        ("Fail Bot", "Be helpful.", '{"greeting": "Fallback!", "default": "Default!"}', 1),
+    )
+    await global_db.commit()
+
+    engine = InferenceEngine()
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=RateLimitError(
+        message="rate limited",
+        response=MagicMock(status_code=429, headers={}),
+        body=None,
+    ))
+
+    with patch.object(engine, "_get_client", return_value=mock_client):
+        engine._available = True
+        with patch("core.inference.asyncio.sleep", new_callable=AsyncMock):
+            response, escalated = await engine.generate("hola")
+
+    assert response == "Fallback!"
+    assert escalated is False
+
+
+@pytest.mark.asyncio
+async def test_generic_exception_falls_back():
+    await global_db.execute(
+        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES (?, ?, ?, ?)",
+        ("Exc Bot", "Be helpful.", '{"default": "Error fallback"}', 1),
+    )
+    await global_db.commit()
+
+    engine = InferenceEngine()
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=RuntimeError("unexpected"))
+
+    with patch.object(engine, "_get_client", return_value=mock_client):
+        engine._available = True
+        response, _escalated = await engine.generate("test")
+
+        assert "Error fallback" in response
+
+
+@pytest.mark.asyncio
+async def test_client_none_returns_fallback():
+    await global_db.execute(
+        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES (?, ?, ?, ?)",
+        ("NoClient Bot", "Be helpful.", '{"default": "no client"}', 1),
+    )
+    await global_db.commit()
+
+    engine = InferenceEngine()
+    engine._available = True
+
+    with patch.object(engine, "_get_client", return_value=None):
+        response, _escalated = await engine.generate("test")
+
+        assert "no client" in response
+
+
+@pytest.mark.asyncio
+async def test_response_with_usage():
+    await global_db.execute(
+        "INSERT INTO agents (name, system_prompt, is_active) VALUES (?, ?, ?)",
+        ("Usage Bot", "Be helpful.", 1),
+    )
+    await global_db.commit()
+
+    engine = InferenceEngine()
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock(message=MagicMock(content="Hello!"))]
+    mock_response.usage = MagicMock()
+    mock_response.usage.prompt_tokens = 50
+    mock_response.usage.completion_tokens = 20
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+    with patch.object(engine, "_get_client", return_value=mock_client), \
+         patch("core.inference.LLM_TOKENS_PROMPT") as mock_prompt, \
+         patch("core.inference.LLM_TOKENS_COMPLETION") as mock_comp:
+        engine._available = True
+        response, _escalated = await engine.generate("Hi")
+
+    assert response == "Hello!"
+    mock_prompt.inc.assert_called_once_with(50)
+    mock_comp.inc.assert_called_once_with(20)
+
+
+@pytest.mark.asyncio
+async def test_response_none_content():
+    await global_db.execute(
+        "INSERT INTO agents (name, system_prompt, is_active) VALUES (?, ?, ?)",
+        ("NoneContent Bot", "Be helpful.", 1),
+    )
+    await global_db.commit()
+
+    engine = InferenceEngine()
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock(message=MagicMock(content=None))]
+    mock_response.usage = None
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+    with patch.object(engine, "_get_client", return_value=mock_client):
+        engine._available = True
+        response, escalated = await engine.generate("Hi")
+
+    assert response == ""
+    assert escalated is False
+
+
+@pytest.mark.asyncio
+async def test_get_client_lazy_init():
+    engine = InferenceEngine()
+    engine._available = True
+    engine.client = None
+
+    with patch("core.inference.AsyncOpenAI") as mock_openai:
+        mock_openai.return_value = MagicMock()
+        client = engine._get_client()
+
+    assert client is not None
+    mock_openai.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_client_not_available():
+    engine = InferenceEngine()
+    engine._available = False
+    engine.client = None
+
+    client = engine._get_client()
+    assert client is None
+
+
+@pytest.mark.asyncio
+async def test_fallback_price_query():
+    fallbacks = '{"price": "Precios: completo $3000"}'
+    await global_db.execute(
+        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES (?, ?, ?, ?)",
+        ("Price Bot", "...", fallbacks, 1),
+    )
+    await global_db.commit()
+
+    engine = InferenceEngine()
+    engine._available = False
+
+    response, _ = await engine.generate("cuanto cuesta el completo")
+    assert "3000" in response
+
+
+@pytest.mark.asyncio
+async def test_fallback_promo_query():
+    fallbacks = '{"promo": "2x1 en completos hoy"}'
+    await global_db.execute(
+        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES (?, ?, ?, ?)",
+        ("Promo Bot", "...", fallbacks, 1),
+    )
+    await global_db.commit()
+
+    engine = InferenceEngine()
+    engine._available = False
+
+    response, _ = await engine.generate("hay alguna oferta?")
+    assert "2x1" in response
+
+
+@pytest.mark.asyncio
+async def test_fallback_delivery_query():
+    fallbacks = '{"delivery": "Delivery en 30 min"}'
+    await global_db.execute(
+        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES (?, ?, ?, ?)",
+        ("Delivery Bot", "...", fallbacks, 1),
+    )
+    await global_db.commit()
+
+    engine = InferenceEngine()
+    engine._available = False
+
+    response, _ = await engine.generate("hacen delivery?")
+    assert "30 min" in response
+
+
+@pytest.mark.asyncio
+async def test_reload():
+    await global_db.execute(
+        "INSERT INTO agents (name, system_prompt, is_active) VALUES (?, ?, ?)",
+        ("Reload Bot", "Original prompt.", 1),
+    )
+    await global_db.commit()
+
+    engine = InferenceEngine()
+    await engine.reload()

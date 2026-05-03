@@ -1,8 +1,12 @@
-import pytest
-import sqlite3
 import os
 import random
+import sqlite3
+from contextlib import suppress
+
+import pytest
+
 from db.migrator import run_migrations
+
 
 @pytest.fixture
 def temp_db():
@@ -10,51 +14,48 @@ def temp_db():
     os.makedirs("./tests/data", exist_ok=True)
     yield path
     if os.path.exists(path):
-        # Close any potential connections before removing
-        try:
+        with suppress(PermissionError):
             os.remove(path)
-        except PermissionError:
-            pass
 
 def test_fresh_db(temp_db):
     """Verifica que una BD nueva se crea con todas las tablas y columnas."""
     run_migrations(temp_db)
     conn = sqlite3.connect(temp_db)
-    
+
     # Verificar que existen todas las tablas principales
     cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     tables = {r[0] for r in cursor.fetchall()}
-    
+
     assert "agents" in tables
     assert "conversations" in tables
     assert "messages" in tables
     assert "sessions" in tables
     assert "conversation_memory" in tables
     assert "schema_migrations" in tables
-    
+
     # Verificar columnas críticas añadidas por ALTER TABLE
     cursor = conn.execute("PRAGMA table_info(conversations)")
     cols = {r[1] for r in cursor.fetchall()}
     assert "current_session_id" in cols
-    
+
     cursor = conn.execute("PRAGMA table_info(messages)")
     cols = {r[1] for r in cursor.fetchall()}
     assert "session_id" in cols
-    
+
     conn.close()
 
 def test_idempotent(temp_db):
     """Verifica que ejecutar migraciones dos veces no rompe nada."""
     run_migrations(temp_db)
     run_migrations(temp_db)  # Segunda vez
-    
+
     conn = sqlite3.connect(temp_db)
     cursor = conn.execute("SELECT COUNT(*) FROM schema_migrations")
     count = cursor.fetchone()[0]
-    
-    # Debe haber 4 migraciones registradas (001_initial_schema, 002_sessions, 003_conversation_memory, 004_order_tags_system_prompt)
+
+    # Debe haber 5 migraciones registradas (001-005)
     # 000_baseline no se registra a sí misma
-    assert count == 4 
+    assert count == 6
     conn.close()
 
 def test_legacy_upgrade(temp_db):

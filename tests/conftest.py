@@ -1,4 +1,5 @@
 import os
+
 os.environ.setdefault("DB_DIR", "/tmp/hermes_test")
 os.environ.setdefault("DB_NAME", "test.db")
 os.environ.setdefault("DB_PATH", "/tmp/hermes_test/test.db")
