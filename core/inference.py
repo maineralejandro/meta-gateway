@@ -121,7 +121,8 @@ class InferenceEngine:
 
         try:
             fallbacks = json.loads(agent.fallback_responses)
-        except Exception:
+        except Exception as e:
+            logger.warning("fallback_json_parse_error", agent_id=getattr(agent, "id", None), error=str(e))
             return "Lo siento, el sistema no está disponible en este momento."
 
         t = text.lower()

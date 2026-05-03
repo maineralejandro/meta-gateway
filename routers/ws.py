@@ -30,6 +30,7 @@ class WebSocketConnectionManager:
             try:
                 await connection.send_json(message)
             except Exception:
+                logger.debug("ws_send_all_failed", total=len(self.active_connections))
                 dead.append(connection)
         for c in dead:
             self.disconnect(c)
@@ -38,6 +39,7 @@ class WebSocketConnectionManager:
         try:
             await websocket.send_json(message)
         except Exception:
+            logger.debug("ws_send_one_failed")
             self.disconnect(websocket)
 
 

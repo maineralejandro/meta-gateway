@@ -1,6 +1,9 @@
 from typing import Any
 
+import structlog
 from prometheus_client import Counter, Gauge, Histogram, Info
+
+logger = structlog.get_logger()
 
 MESSAGES_RECEIVED = Counter(
     "hermes_messages_received_total",
@@ -81,8 +84,8 @@ async def refresh_active_conversations(db: Any = None) -> None:
             "SELECT COUNT(*) FROM conversations WHERE state != 'BOT_ACTIVE'"
         )
         ACTIVE_CONVERSATIONS.set(row[0] if row else 0)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("metrics_refresh_failed", metric="active_conversations", error=str(e))
 
 
 async def refresh_active_sessions(db: Any = None) -> None:
@@ -94,5 +97,5 @@ async def refresh_active_sessions(db: Any = None) -> None:
             "SELECT COUNT(*) FROM sessions WHERE ended_at IS NULL"
         )
         ACTIVE_SESSIONS.set(row[0] if row else 0)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("metrics_refresh_failed", metric="active_sessions", error=str(e))

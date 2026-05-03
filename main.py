@@ -192,8 +192,8 @@ async def health_check() -> dict[str, Any]:
         _db = await get_db()
         await _db.fetchone("SELECT 1")
         db_ok = True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("health_check_db_failed", error=str(e))
 
     status = "ok" if meta_health["connected"] and llm_key_valid and db_ok else "degraded"
     return {
