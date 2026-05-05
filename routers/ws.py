@@ -52,8 +52,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     if settings.DASHBOARD_TOKEN:
         try:
             data = await asyncio.wait_for(websocket.receive_json(), timeout=5)
-        except Exception:
+        except TimeoutError:
             await websocket.close(code=4001, reason="Auth timeout")
+            return
+        except WebSocketDisconnect:
             return
         if data.get("type") != "auth" or data.get("token") != settings.DASHBOARD_TOKEN:
             await websocket.close(code=4001, reason="Invalid token")

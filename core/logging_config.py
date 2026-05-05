@@ -1,4 +1,6 @@
 import logging
+import os
+from logging.handlers import RotatingFileHandler
 from typing import Any
 
 import structlog
@@ -10,6 +12,21 @@ def setup_logging() -> None:
         format="%(message)s",
         level=logging.INFO,
     )
+
+    log_dir = os.environ.get("LOG_DIR", "./logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "hermes.jsonl")
+    max_bytes = int(os.environ.get("LOG_MAX_BYTES", 10 * 1024 * 1024))
+    backup_count = int(os.environ.get("LOG_BACKUP_COUNT", 5))
+
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+    )
+    file_handler.setFormatter(logging.Formatter("%(message)s"))
+    file_handler.setLevel(logging.INFO)
+    logging.getLogger().addHandler(file_handler)
 
     structlog.configure(
         processors=[

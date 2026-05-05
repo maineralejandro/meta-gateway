@@ -4,13 +4,38 @@ from typing import Any
 
 import structlog
 
+from core.capabilities.base import BaseCapability
+from core.capabilities.base import registry as capability_registry
 from core.llm_client import LLMClient
-from core.metrics import LLM_TOKENS_COMPLETION, LLM_TOKENS_PROMPT
+from core.metrics import LLM_FALLBACK, LLM_TOKENS_COMPLETION, LLM_TOKENS_PROMPT
 from core.security import sanitize_llm_output
 from db.database import db
 from db.models import Agent
 
 logger = structlog.get_logger()
+
+
+def _normalize_roles(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for msg in messages:
+        if not normalized:
+            normalized.append(msg)
+            continue
+        last_role = normalized[-1]["role"]
+        if msg["role"] == last_role and msg["role"] in ("user", "assistant"):
+            normalized[-1]["content"] += "\n" + msg["content"]
+            continue
+        if msg["role"] == "system" and last_role == "system":
+            normalized[-1]["content"] += "\n\n" + msg["content"]
+            continue
+        if msg["role"] == "user" and last_role == "user":
+            normalized[-1]["content"] += "\n" + msg["content"]
+            continue
+        if msg["role"] == "assistant" and last_role == "assistant":
+            normalized[-1]["content"] += "\n" + msg["content"]
+            continue
+        normalized.append(msg)
+    return normalized
 
 
 class InferenceEngine:
@@ -49,26 +74,58 @@ class InferenceEngine:
         user_message: str,
         history: list[dict[str, Any]] | None = None,
         agent_id: int | None = None,
-    ) -> tuple[str, bool]:
+        capabilities: list[BaseCapability] | None = None,
+        phone: str = "",
+        correlation_id: str = "",
+    ) -> tuple[str, bool, dict[str, Any]]:
         if agent_id:
             agent = await self._load_agent(agent_id=agent_id, force=True)
         else:
             agent = await self._load_agent()
 
+        trace: dict[str, Any] = {
+            "source": "error",
+            "error_type": None,
+            "error_message": None,
+            "response_raw": None,
+            "token_usage_prompt": 0,
+            "token_usage_completion": 0,
+            "latency_ms": 0,
+        }
+
         if not self._llm.available:
+            logger.warning("llm_unavailable", reason="api_key_not_set")
+            LLM_FALLBACK.labels(reason="unavailable").inc()
             fallback = await self._fallback_response(user_message, agent)
-            return fallback, False
+            trace["source"] = "fallback"
+            trace["error_type"] = "unavailable"
+            trace["error_message"] = "LLM API key not configured or invalid"
+            return fallback, False, trace
 
         try:
             client = self._llm.get_client()
             if client is None:
+                logger.warning("llm_client_none", reason="get_client_returned_none")
+                LLM_FALLBACK.labels(reason="unavailable").inc()
                 fallback = await self._fallback_response(user_message, agent)
-                return fallback, False
+                trace["source"] = "fallback"
+                trace["error_type"] = "unavailable"
+                trace["error_message"] = "LLM client returned None"
+                return fallback, False, trace
+
             system_prompt = (
                 agent.system_prompt
                 if agent
                 else "Eres un asistente servicial. Responde de forma clara y directa."
             )
+            resolved = capabilities if capabilities is not None else await capability_registry.resolve(agent_id)
+            cap_instructions: list[str] = []
+            for cap in resolved:
+                instruction = cap.get_prompt_instructions(cap.config)
+                if instruction:
+                    cap_instructions.append(instruction)
+            if cap_instructions:
+                system_prompt += "\n\n" + "\n\n".join(cap_instructions)
             if "customer_message" not in system_prompt:
                 system_prompt += (
                     "\n\nIMPORTANTE: El mensaje del cliente viene dentro de etiquetas"
@@ -85,18 +142,32 @@ class InferenceEngine:
                 "content": f"<customer_message>\n{user_message}\n</customer_message>",
             })
 
+            messages = _normalize_roles(messages)
+
+            trace["request_messages"] = json.dumps(messages)
+
+            t0 = time.monotonic()
             response = await self._llm.chat_completion(
                 messages, max_tokens=500, log_label="llm_retry",
             )
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            trace["latency_ms"] = latency_ms
+
             raw_content = response.choices[0].message.content
             text = raw_content.strip() if raw_content else ""
+            trace["response_raw"] = raw_content
+            trace["source"] = "llm"
+
             if response.usage:
                 LLM_TOKENS_PROMPT.inc(response.usage.prompt_tokens)
                 LLM_TOKENS_COMPLETION.inc(response.usage.completion_tokens)
+                trace["token_usage_prompt"] = response.usage.prompt_tokens
+                trace["token_usage_completion"] = response.usage.completion_tokens
                 logger.info(
                     "llm_token_usage",
                     prompt_tokens=response.usage.prompt_tokens,
                     completion_tokens=response.usage.completion_tokens,
+                    latency_ms=latency_ms,
                 )
 
             text = sanitize_llm_output(text)
@@ -106,14 +177,19 @@ class InferenceEngine:
                 return (
                     clean if clean else "Un momento, te comunico con un atendedor.",
                     True,
+                    trace,
                 )
 
-            return text, False
+            return text, False, trace
 
         except Exception as e:
-            logger.error("inference_error", error=str(e))
+            logger.error("inference_error", error=str(e), error_type=type(e).__name__)
+            LLM_FALLBACK.labels(reason="error").inc()
             fallback = await self._fallback_response(user_message, agent)
-            return fallback, False
+            trace["source"] = "error"
+            trace["error_type"] = type(e).__name__
+            trace["error_message"] = str(e)
+            return fallback, False, trace
 
     async def _fallback_response(self, text: str, agent: Agent | None = None) -> str:
         if not agent:

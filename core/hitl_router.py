@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 import uuid
 from typing import Any
@@ -6,6 +7,7 @@ from typing import Any
 import structlog
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
+from core.capabilities.base import registry as capability_registry
 from core.events import emit
 from core.inference import inference_engine
 from core.memory import memory_manager
@@ -19,12 +21,11 @@ from core.metrics import (
     MESSAGES_SENT,
     refresh_active_conversations,
 )
-from core.order_state import order_state
 from core.security import sanitize_llm_output
 from core.sentiment import sentiment_analyzer
 from core.task_tracker import track_task
 from db.database import get_db
-from db.models import AgentDecision
+from db.models import AgentDecision, InferenceTrace, Turn
 
 logger = structlog.get_logger()
 
@@ -72,7 +73,7 @@ class HITLRouter:
         return False, ""
 
     async def _save_decision(
-        self, db: Any, message_id: int | None, phone: str, decision_data: dict[str, Any]
+        self, db: Any, message_id: int | None, phone: str, decision_data: dict[str, Any], correlation_id: str = ""
     ) -> AgentDecision:
         decision = AgentDecision(
             message_id=message_id,
@@ -84,36 +85,84 @@ class HITLRouter:
             escalate_reason=decision_data.get("escalate_reason"),
             history_count=decision_data["history_count"],
             agent_name=decision_data["agent_name"],
+            correlation_id=correlation_id,
         )
         await db.insert_agent_decision(decision)
         return decision
 
-    async def process_inbound_message(self, phone: str, text: str) -> None:
+    async def _save_trace(
+        self, db: Any, phone: str, correlation_id: str, agent_id: int | None, trace: dict[str, Any]
+    ) -> None:
+        try:
+            trace_record = InferenceTrace(
+                phone=phone,
+                correlation_id=correlation_id,
+                agent_id=agent_id,
+                request_messages=trace.get("request_messages", ""),
+                response_raw=trace.get("response_raw"),
+                response_source=trace.get("source", "error"),
+                error_type=trace.get("error_type"),
+                error_message=trace.get("error_message"),
+                token_usage_prompt=trace.get("token_usage_prompt", 0),
+                token_usage_completion=trace.get("token_usage_completion", 0),
+                latency_ms=trace.get("latency_ms", 0),
+            )
+            await db.insert_trace(trace_record)
+        except Exception as e:
+            logger.error("trace_save_error", phone=phone, error=str(e))
+
+    async def process_inbound_message(self, phone: str, text: str, correlation_id: str | None = None) -> None:
+        if not correlation_id:
+            correlation_id = uuid.uuid4().hex[:12]
+        await self.process_turn(phone, text, correlation_id, [], None)
+
+    async def process_turn(self, phone: str, consolidated_text: str, correlation_id: str, message_ids: list[int], session_id: str | None = None) -> None:
         lock = _get_phone_lock(phone)
         async with lock:
-            await self._process_inbound_message_inner(phone, text)
+            await self._process_turn_inner(phone, consolidated_text, correlation_id, message_ids, session_id)
 
-    async def _process_inbound_message_inner(self, phone: str, text: str) -> None:
-        correlation_id = uuid.uuid4().hex[:12]
+    async def _process_turn_inner(self, phone: str, consolidated_text: str, correlation_id: str, message_ids: list[int], session_id: str | None = None) -> None:
         bind_contextvars(correlation_id=correlation_id, phone=phone)
         from core.background import touch_phone_lock
         touch_phone_lock(phone)
         try:
             MESSAGES_RECEIVED.labels(source="customer").inc()
+            logger.info("turn_received", phone=phone, text_length=len(consolidated_text), burst_size=len(message_ids))
             db = await get_db()
             conv = await db.get_conversation(phone)
             agent_id = conv.agent_id if conv else None
-            session_id = conv.current_session_id if conv else None
+            if session_id is None:
+                session_id = conv.current_session_id if conv else None
 
-            sentiment_result = await sentiment_analyzer.analyze(text)
+            try:
+                sentiment_result = await sentiment_analyzer.analyze(consolidated_text)
+                logger.debug("sentiment_analyzed", sentiment=sentiment_result.get("sentiment"), score=sentiment_result.get("score"))
+            except Exception as e:
+                logger.warning("sentiment_analysis_failed", error=str(e))
+                sentiment_result = {"sentiment": "neutral", "score": 0.5, "confidence": 0.5}
 
-            history = await memory_manager.build_context(phone, current_message=text)
+            try:
+                capabilities = await capability_registry.resolve(agent_id)
+                logger.debug("capabilities_resolved", count=len(capabilities), names=[c.name for c in capabilities])
+            except Exception as e:
+                logger.warning("capability_resolution_failed", error=str(e))
+                capabilities = []
+
+            try:
+                history = await memory_manager.build_context(
+                    phone, current_message=consolidated_text, agent_id=agent_id, capabilities=capabilities,
+                )
+                logger.debug("context_built", history_count=len(history))
+            except Exception as e:
+                logger.warning("context_build_failed", error=str(e))
+                history = []
 
             LLM_REQUESTS.inc()
             t0 = time.monotonic()
             try:
-                response_text, llm_escalate = await inference_engine.generate(
-                    text, history=history, agent_id=agent_id
+                response_text, llm_escalate, trace = await inference_engine.generate(
+                    consolidated_text, history=history, agent_id=agent_id, capabilities=capabilities,
+                    phone=phone, correlation_id=correlation_id,
                 )
             except Exception:
                 LLM_ERRORS.inc()
@@ -121,8 +170,16 @@ class HITLRouter:
             finally:
                 LLM_LATENCY.observe(time.monotonic() - t0)
 
+            await self._save_trace(db, phone, correlation_id, agent_id, trace)
+            logger.info(
+                "inference_completed",
+                response_source=trace.get("source"),
+                latency_ms=trace.get("latency_ms"),
+                is_fallback=trace.get("source") in ("fallback", "error"),
+            )
+
             should_escalate, reason = await self.should_escalate(
-                sentiment_result, text, llm_escalate
+                sentiment_result, consolidated_text, llm_escalate
             )
 
             agent_name = ""
@@ -148,10 +205,23 @@ class HITLRouter:
                 escalation_msg = "Un momento, te comunico con un atendedor. 🙏"
                 await meta_client.send_text(phone, escalation_msg)
                 MESSAGES_SENT.labels(source="bot").inc()
-                message_id = await db.insert_message(phone, "outbound", "bot", escalation_msg, session_id=session_id)
+                out_message_id = await db.insert_message(
+                    phone, "outbound", "bot", escalation_msg,
+                    session_id=session_id, correlation_id=correlation_id,
+                )
 
-                await self._save_decision(db, message_id, phone, decision_data)
-                decision_data["message_id"] = message_id
+                await db.insert_turn(Turn(
+                    phone=phone,
+                    user_text=consolidated_text,
+                    assistant_text=escalation_msg,
+                    user_correlation_id=correlation_id,
+                    assistant_correlation_id=correlation_id,
+                    message_ids=json.dumps(message_ids) if message_ids else "[]",
+                    session_id=session_id,
+                ))
+
+                await self._save_decision(db, out_message_id, phone, decision_data, correlation_id)
+                decision_data["message_id"] = out_message_id
 
                 await emit("escalated", {
                     "phone": phone,
@@ -169,29 +239,43 @@ class HITLRouter:
                 phone, sentiment_result["score"], sentiment_result["confidence"]
             )
 
-            response_text = await order_state.parse_tags(phone, response_text)
+            for cap in capabilities:
+                response_text = await cap.parse_tags(phone, response_text, cap.config)
             response_text = sanitize_llm_output(response_text)
             await meta_client.send_text(phone, response_text)
             MESSAGES_SENT.labels(source="bot").inc()
-            message_id = await db.insert_message(phone, "outbound", "bot", response_text, session_id=session_id)
+            out_message_id = await db.insert_message(
+                phone, "outbound", "bot", response_text,
+                session_id=session_id, correlation_id=correlation_id,
+            )
 
-            await self._save_decision(db, message_id, phone, decision_data)
-            decision_data["message_id"] = message_id
+            await db.insert_turn(Turn(
+                phone=phone,
+                user_text=consolidated_text,
+                assistant_text=response_text,
+                user_correlation_id=correlation_id,
+                assistant_correlation_id=correlation_id,
+                message_ids=json.dumps(message_ids) if message_ids else "[]",
+                session_id=session_id,
+            ))
+
+            await self._save_decision(db, out_message_id, phone, decision_data, correlation_id)
+            decision_data["message_id"] = out_message_id
 
             await emit("bot-replied", {
                 "phone": phone,
                 "response": response_text,
                 "direction": "outbound",
                 "source": "bot",
-                "message_id": message_id,
+                "message_id": out_message_id,
                 "decision": decision_data,
             })
 
-            logger.info("bot_replied", phone=phone)
+            logger.info("bot_replied", phone=phone, response_source=trace.get("source"))
             track_task(asyncio.create_task(_safe_summarize(phone)))
 
         except Exception as e:
-            logger.error("process_message_error", phone=phone, error=str(e))
+            logger.error("process_turn_error", phone=phone, error=str(e), error_type=type(e).__name__)
             await emit("error", {
                 "phone": phone,
                 "error": str(e),

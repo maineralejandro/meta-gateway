@@ -8,17 +8,25 @@ import aiosqlite
 from core.config import settings
 from db.models import (
     Agent,
+    AgentCapability,
     AgentDecision,
+    AgentTemplate,
     Conversation,
     ConversationMemory,
+    InferenceTrace,
     Message,
     Session,
+    Turn,
     row_to_agent,
+    row_to_agent_capability,
     row_to_agent_decision,
+    row_to_agent_template,
     row_to_conversation,
+    row_to_inference_trace,
     row_to_memory,
     row_to_message,
     row_to_session,
+    row_to_turn,
 )
 
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
@@ -170,8 +178,8 @@ class Database:
         cursor = await conn.execute(
             """INSERT INTO agent_decisions
             (message_id, phone, sentiment, sentiment_score, confidence,
-             llm_escalate, escalate_reason, history_count, agent_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            llm_escalate, escalate_reason, history_count, agent_name, correlation_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 decision.message_id,
                 decision.phone,
@@ -182,6 +190,7 @@ class Database:
                 decision.escalate_reason,
                 decision.history_count,
                 decision.agent_name,
+                decision.correlation_id,
             ),
         )
         await conn.commit()
@@ -282,12 +291,13 @@ class Database:
         media_type: str | None = None,
         media_url: str | None = None,
         meta_message_id: str | None = None,
+        correlation_id: str | None = None,
     ) -> int:
         conn = await self._get_conn()
         cursor = await conn.execute(
-            """INSERT INTO messages (phone, direction, source, text, media_type, media_url, meta_message_id, session_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (phone, direction, source, text, media_type, media_url, meta_message_id, session_id),
+            """INSERT INTO messages (phone, direction, source, text, media_type, media_url, meta_message_id, session_id, correlation_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (phone, direction, source, text, media_type, media_url, meta_message_id, session_id, correlation_id),
         )
         await conn.commit()
         assert cursor.lastrowid is not None
@@ -384,6 +394,323 @@ class Database:
             "UPDATE conversations SET agent_id=? WHERE phone=?", (agent_id, phone)
         )
         await self.commit()
+
+    async def get_agent_capabilities(self, agent_id: int) -> list[AgentCapability]:
+        rows = await self.fetchall(
+            "SELECT * FROM agent_capabilities WHERE agent_id=? ORDER BY capability_name",
+            (agent_id,),
+        )
+        return [c for r in rows if (c := row_to_agent_capability(r)) is not None]
+
+    async def upsert_agent_capability(self, ac: AgentCapability) -> int:
+        conn = await self._get_conn()
+        cursor = await conn.execute(
+            """INSERT INTO agent_capabilities (agent_id, capability_name, is_active, config_json, updated_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(agent_id, capability_name) DO UPDATE SET
+                is_active=excluded.is_active,
+                config_json=excluded.config_json,
+                updated_at=CURRENT_TIMESTAMP""",
+            (ac.agent_id, ac.capability_name, ac.is_active, ac.config_json),
+        )
+        await conn.commit()
+        assert cursor.lastrowid is not None
+        return cursor.lastrowid
+
+    async def delete_agent_capability(self, agent_id: int, capability_name: str) -> None:
+        await self.execute(
+            "DELETE FROM agent_capabilities WHERE agent_id=? AND capability_name=?",
+            (agent_id, capability_name),
+        )
+        await self.commit()
+
+    async def save_appointment(self, phone: str, date: str, time: str, service_key: str, status: str = "confirmed") -> int:
+        conn = await self._get_conn()
+        cursor = await conn.execute(
+            """INSERT INTO appointments (phone, date, time, service_key, status, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+            (phone, date, time, service_key, status),
+        )
+        await conn.commit()
+        assert cursor.lastrowid is not None
+        return cursor.lastrowid
+
+    async def load_appointments(self, phone: str, status: str = "confirmed") -> list[aiosqlite.Row]:
+        if status:
+            return await self.fetchall(
+                "SELECT * FROM appointments WHERE phone=? AND status=? ORDER BY date, time",
+                (phone, status),
+            )
+        return await self.fetchall(
+            "SELECT * FROM appointments WHERE phone=? ORDER BY date, time",
+            (phone,),
+        )
+
+    async def cancel_appointment(self, phone: str, date: str, time: str) -> None:
+        conn = await self._get_conn()
+        await conn.execute(
+            "UPDATE appointments SET status='cancelled', updated_at=CURRENT_TIMESTAMP WHERE phone=? AND date=? AND time=?",
+            (phone, date, time),
+        )
+        await conn.commit()
+
+    async def save_membership(self, phone: str, plan_key: str, status: str, started_at: str, next_billing: str) -> None:
+        conn = await self._get_conn()
+        await conn.execute(
+            """INSERT INTO memberships (phone, plan_key, status, started_at, next_billing, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(phone) DO UPDATE SET
+            plan_key=excluded.plan_key, status=excluded.status,
+            started_at=excluded.started_at, next_billing=excluded.next_billing, updated_at=CURRENT_TIMESTAMP""",
+            (phone, plan_key, status, started_at, next_billing),
+        )
+        await conn.commit()
+
+    async def load_membership(self, phone: str) -> aiosqlite.Row | None:
+        return await self.fetchone(
+            "SELECT * FROM memberships WHERE phone=?",
+            (phone,),
+        )
+
+    async def cancel_membership(self, phone: str) -> None:
+        conn = await self._get_conn()
+        await conn.execute(
+            "UPDATE memberships SET status='cancelled', updated_at=CURRENT_TIMESTAMP WHERE phone=?",
+            (phone,),
+        )
+        await conn.commit()
+
+    async def load_plans(self) -> list[aiosqlite.Row]:
+        return await self.fetchall(
+            "SELECT * FROM plans ORDER BY sort_order, price"
+        )
+
+    async def upsert_plan(self, key: str, name: str, price: int, billing_cycle: str = "monthly", features: str = "[]", sort_order: int = 0) -> None:
+        conn = await self._get_conn()
+        await conn.execute(
+            """INSERT INTO plans (key, name, price, billing_cycle, features, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+            name=excluded.name, price=excluded.price,
+            billing_cycle=excluded.billing_cycle, features=excluded.features, sort_order=excluded.sort_order""",
+            (key, name, price, billing_cycle, features, sort_order),
+        )
+        await conn.commit()
+
+    async def load_lead(self, phone: str) -> aiosqlite.Row | None:
+        return await self.fetchone(
+            "SELECT * FROM leads WHERE phone=?",
+            (phone,),
+        )
+
+    async def upsert_lead(self, phone: str, stage: str, data_json: str) -> None:
+        conn = await self._get_conn()
+        await conn.execute(
+            """INSERT INTO leads (phone, stage, data_json, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(phone) DO UPDATE SET
+            stage=excluded.stage, data_json=excluded.data_json, updated_at=CURRENT_TIMESTAMP""",
+            (phone, stage, data_json),
+        )
+        await conn.commit()
+
+    async def insert_turn(self, turn: Turn) -> int:
+        conn = await self._get_conn()
+        cursor = await conn.execute(
+            """INSERT INTO turns (phone, user_text, assistant_text, user_correlation_id, assistant_correlation_id, message_ids, session_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (turn.phone, turn.user_text, turn.assistant_text, turn.user_correlation_id, turn.assistant_correlation_id, turn.message_ids, turn.session_id),
+        )
+        await conn.commit()
+        assert cursor.lastrowid is not None
+        return cursor.lastrowid
+
+    async def get_turns(self, phone: str, limit: int = 16, desc: bool = False) -> list[Turn]:
+        order = "DESC" if desc else "ASC"
+        rows = await self.fetchall(
+            f"""SELECT id, phone, user_text, assistant_text, user_correlation_id, assistant_correlation_id, message_ids, session_id, created_at
+            FROM turns WHERE phone=? ORDER BY id {order} LIMIT ?""",
+            (phone, limit),
+        )
+        return [t for r in rows if (t := row_to_turn(r)) is not None]
+
+    async def count_turns(self, phone: str) -> int:
+        row = await self.fetchone(
+            "SELECT COUNT(*) as cnt FROM turns WHERE phone=?",
+            (phone,),
+        )
+        return row["cnt"] if row else 0
+
+    async def get_last_turn(self, phone: str) -> Turn | None:
+        row = await self.fetchone(
+            """SELECT id, phone, user_text, assistant_text, user_correlation_id, assistant_correlation_id, message_ids, session_id, created_at
+            FROM turns WHERE phone=? ORDER BY id DESC LIMIT 1""",
+            (phone,),
+        )
+        return row_to_turn(row)
+
+    async def get_turns_by_session(self, session_id: str) -> list[Turn]:
+        rows = await self.fetchall(
+            """SELECT id, phone, user_text, assistant_text, user_correlation_id, assistant_correlation_id, message_ids, session_id, created_at
+            FROM turns WHERE session_id=? ORDER BY id ASC""",
+            (session_id,),
+        )
+        return [t for r in rows if (t := row_to_turn(r)) is not None]
+
+    async def get_session_summaries(self, phone: str, limit: int = 5) -> list[dict[str, Any]]:
+        rows = await self.fetchall(
+            """SELECT id, started_at, summary FROM sessions
+            WHERE phone=? AND summary IS NOT NULL AND summary != ''
+            ORDER BY started_at DESC LIMIT ?""",
+            (phone, limit),
+        )
+        return [{"session_id": row["id"], "started_at": row["started_at"], "summary": row["summary"]} for row in rows]
+
+    async def update_session_summary(self, session_id: str, summary: str) -> None:
+        conn = await self._get_conn()
+        await conn.execute(
+            "UPDATE sessions SET summary=? WHERE id=?",
+            (summary, session_id),
+        )
+        await conn.commit()
+
+    async def insert_trace(self, trace: InferenceTrace) -> int:
+        conn = await self._get_conn()
+        cursor = await conn.execute(
+            """INSERT INTO inference_traces
+            (phone, correlation_id, agent_id, request_messages, response_raw,
+            response_source, error_type, error_message, token_usage_prompt,
+            token_usage_completion, latency_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                trace.phone,
+                trace.correlation_id,
+                trace.agent_id,
+                trace.request_messages,
+                trace.response_raw,
+                trace.response_source,
+                trace.error_type,
+                trace.error_message,
+                trace.token_usage_prompt,
+                trace.token_usage_completion,
+                trace.latency_ms,
+            ),
+        )
+        await conn.commit()
+        assert cursor.lastrowid is not None
+        return cursor.lastrowid
+
+    async def get_traces(self, phone: str, limit: int = 10) -> list[InferenceTrace]:
+        rows = await self.fetchall(
+            """SELECT id, phone, correlation_id, agent_id, request_messages, response_raw,
+            response_source, error_type, error_message, token_usage_prompt,
+            token_usage_completion, latency_ms, created_at
+            FROM inference_traces WHERE phone = ?
+            ORDER BY created_at DESC LIMIT ?""",
+            (phone, limit),
+        )
+        return [t for r in rows if (t := row_to_inference_trace(r)) is not None]
+
+    async def get_trace_stats(self, hours: int = 24) -> dict[str, Any]:
+        conn = await self._get_conn()
+        cursor = await conn.execute(
+            """SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN response_source = 'llm' THEN 1 ELSE 0 END) as llm_count,
+                SUM(CASE WHEN response_source = 'fallback' THEN 1 ELSE 0 END) as fallback_count,
+                SUM(CASE WHEN response_source = 'error' THEN 1 ELSE 0 END) as error_count,
+                ROUND(AVG(CASE WHEN response_source = 'llm' THEN latency_ms END)) as avg_llm_latency,
+                ROUND(AVG(latency_ms)) as avg_latency
+                FROM inference_traces
+                WHERE created_at >= datetime('now', ?)""",
+            (f"-{hours} hours",),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return {"total": 0, "llm": 0, "fallback": 0, "error": 0, "avg_llm_latency": 0, "avg_latency": 0}
+        return {
+            "total": row[0] or 0,
+            "llm": row[1] or 0,
+            "fallback": row[2] or 0,
+            "error": row[3] or 0,
+            "avg_llm_latency": row[4] or 0,
+            "avg_latency": row[5] or 0,
+        }
+
+    async def get_last_error(self) -> dict[str, Any] | None:
+        rows = await self.fetchall(
+            """SELECT id, phone, correlation_id, error_type, error_message, created_at
+            FROM inference_traces
+            WHERE response_source = 'error'
+            ORDER BY created_at DESC LIMIT 1""",
+        )
+        if not rows:
+            return None
+        r = rows[0]
+        return {
+            "id": r[0],
+            "phone": r[1],
+            "correlation_id": r[2],
+            "error_type": r[3],
+            "error_message": r[4],
+            "created_at": r[5],
+        }
+
+    async def get_recent_traces(self, limit: int = 50, source: str | None = None) -> list[InferenceTrace]:
+        if source:
+            rows = await self.fetchall(
+                """SELECT id, phone, correlation_id, agent_id, request_messages, response_raw,
+                          response_source, error_type, error_message,
+                          token_usage_prompt, token_usage_completion, latency_ms, created_at
+                   FROM inference_traces
+                   WHERE response_source = ?
+                   ORDER BY created_at DESC LIMIT ?""",
+                (source, limit),
+            )
+        else:
+            rows = await self.fetchall(
+                """SELECT id, phone, correlation_id, agent_id, request_messages, response_raw,
+                          response_source, error_type, error_message,
+                          token_usage_prompt, token_usage_completion, latency_ms, created_at
+                   FROM inference_traces
+                   ORDER BY created_at DESC LIMIT ?""",
+                (limit,),
+            )
+        return [t for r in rows if (t := row_to_inference_trace(r)) is not None]
+
+    async def get_trace_by_id(self, trace_id: int) -> InferenceTrace | None:
+        row = await self.fetchone(
+            """SELECT id, phone, correlation_id, agent_id, request_messages, response_raw,
+                      response_source, error_type, error_message,
+                      token_usage_prompt, token_usage_completion, latency_ms, created_at
+               FROM inference_traces WHERE id = ?""",
+            (trace_id,),
+        )
+        return row_to_inference_trace(row)
+
+    async def cleanup_traces(self, days: int = 30) -> int:
+        conn = await self._get_conn()
+        cursor = await conn.execute(
+            "DELETE FROM inference_traces WHERE created_at < datetime('now', ?)",
+            (f"-{days} days",),
+        )
+        await conn.commit()
+        return cursor.rowcount
+
+    async def get_all_templates(self) -> list[AgentTemplate]:
+        rows = await self.fetchall(
+            "SELECT id, name, description, system_prompt_template, capabilities, fallback_responses, created_at FROM agent_templates ORDER BY id"
+        )
+        return [t for r in rows if (t := row_to_agent_template(r)) is not None]
+
+    async def get_template(self, template_id: int) -> AgentTemplate | None:
+        conn = await self._get_conn()
+        cursor = await conn.execute(
+            "SELECT id, name, description, system_prompt_template, capabilities, fallback_responses, created_at FROM agent_templates WHERE id = ?",
+            (template_id,),
+        )
+        row = await cursor.fetchone()
+        return row_to_agent_template(row)
 
     async def close(self) -> None:
         if self._conn:

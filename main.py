@@ -11,6 +11,11 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.background import start_cleanup_task, stop_cleanup_task
+from core.capabilities.appointment import AppointmentCapability
+from core.capabilities.base import registry
+from core.capabilities.lead import LeadCapability
+from core.capabilities.membership import MembershipCapability
+from core.capabilities.order import OrderCapability
 from core.config import settings
 from core.events import setup_default_subscribers
 from core.logging_config import setup_logging
@@ -19,7 +24,7 @@ from core.metrics import APP_INFO
 from core.security import api_rate_limiter
 from core.task_tracker import wait_for_inflight
 from db.database import close_db, init_db
-from routers import agents, conversations, messages, webhook, ws
+from routers import agents, capabilities, conversations, debug, messages, templates, webhook, ws
 
 setup_logging()
 
@@ -67,6 +72,10 @@ class APIRateLimitMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_db()
+    registry.register(OrderCapability)
+    registry.register(AppointmentCapability)
+    registry.register(MembershipCapability)
+    registry.register(LeadCapability)
     setup_default_subscribers()
     APP_INFO.info({"version": "2.0.0", "llm_model": settings.LLM_MODEL or "unknown"})
     start_cleanup_task()
@@ -126,6 +135,9 @@ app.include_router(webhook.router)
 app.include_router(conversations.router)
 app.include_router(messages.router)
 app.include_router(agents.router)
+app.include_router(capabilities.router)
+app.include_router(debug.router)
+app.include_router(templates.router)
 app.include_router(ws.router)
 
 
@@ -217,6 +229,10 @@ async def health_check() -> dict[str, Any]:
     }
 
 
-if __name__ == "__main__":
+def run() -> None:
     import uvicorn
-    uvicorn.run(app, host=settings.API_HOST, port=settings.API_PORT, reload=True)
+    uvicorn.run("main:app", host=settings.API_HOST, port=settings.API_PORT, reload=True)
+
+
+if __name__ == "__main__":
+    run()

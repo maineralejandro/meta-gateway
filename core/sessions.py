@@ -2,11 +2,13 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 
-from core.order_state import order_state
+from core.capabilities.base import registry as capability_registry
+from core.memory import _safe_summarize_session
 from db.database import db
 
 logger = structlog.get_logger()
 SESSION_TIMEOUT_HOURS = 4
+
 
 class SessionManager:
     async def get_or_create_session(self, phone: str) -> str:
@@ -29,11 +31,15 @@ class SessionManager:
                 elapsed = datetime.now(UTC) - last_msg_time
 
                 if elapsed > timedelta(hours=SESSION_TIMEOUT_HOURS):
+                    old_session_id = conv.current_session_id
+                    await _safe_summarize_session(phone, old_session_id)
                     await db.close_session(
                         conv.current_session_id,
                         reason='timeout',
                     )
-                    await order_state.clear(phone)
+                    capabilities = await capability_registry.resolve(conv.agent_id)
+                    for cap in capabilities:
+                        await cap.clear(phone, cap.config)
                     logger.info(
                         "session_expired",
                         phone=phone,
@@ -50,5 +56,6 @@ class SessionManager:
                 return conv.current_session_id
 
         return conv.current_session_id
+
 
 session_manager = SessionManager()
