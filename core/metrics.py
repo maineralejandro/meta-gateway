@@ -59,6 +59,12 @@ RATE_LIMITS = Counter(
     "Total messages rejected by rate limiter",
 )
 
+LLM_FALLBACK = Counter(
+    "hermes_llm_fallback_total",
+    "Total LLM fallback responses (not from LLM)",
+    ["reason"],
+)
+
 ACTIVE_CONVERSATIONS = Gauge(
     "hermes_active_conversations",
     "Number of conversations in non-BOT_ACTIVE states",
