@@ -45,3 +45,4 @@ full_models_raw.json
 scratch/
 tests/data/
 .coverage
+logs/
