@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS messages (
     media_url TEXT,
     meta_message_id TEXT,
     session_id TEXT,
+    correlation_id TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (phone) REFERENCES conversations(phone),
     FOREIGN KEY (session_id) REFERENCES sessions(id)
@@ -91,6 +92,7 @@ CREATE TABLE IF NOT EXISTS agent_decisions (
     escalate_reason TEXT,
     history_count INTEGER DEFAULT 0,
     agent_name TEXT NOT NULL DEFAULT '',
+    correlation_id TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -119,3 +121,109 @@ CREATE TABLE IF NOT EXISTS menu_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_menu_items_category ON menu_items(category);
+
+CREATE TABLE IF NOT EXISTS agent_capabilities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    capability_name TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    config_json TEXT NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+    UNIQUE(agent_id, capability_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_capabilities_agent ON agent_capabilities(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_capabilities_active ON agent_capabilities(agent_id, is_active);
+
+CREATE TABLE IF NOT EXISTS appointments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phone TEXT NOT NULL,
+    date TEXT NOT NULL,
+    time TEXT NOT NULL,
+    service_key TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'confirmed',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (phone) REFERENCES conversations(phone)
+);
+
+CREATE INDEX IF NOT EXISTS idx_appointments_phone ON appointments(phone);
+CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(date);
+
+CREATE TABLE IF NOT EXISTS memberships (
+    phone TEXT PRIMARY KEY,
+    plan_key TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    started_at TEXT NOT NULL,
+    next_billing TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (phone) REFERENCES conversations(phone)
+);
+
+CREATE TABLE IF NOT EXISTS plans (
+    key TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    price INTEGER NOT NULL,
+    billing_cycle TEXT NOT NULL DEFAULT 'monthly',
+    features TEXT NOT NULL DEFAULT '[]',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS leads (
+    phone TEXT PRIMARY KEY,
+    stage TEXT NOT NULL DEFAULT 'interesado',
+    data_json TEXT NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (phone) REFERENCES conversations(phone)
+);
+
+CREATE TABLE IF NOT EXISTS agent_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL,
+    system_prompt_template TEXT NOT NULL,
+    capabilities TEXT NOT NULL DEFAULT '[]',
+    fallback_responses TEXT NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS inference_traces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phone TEXT NOT NULL,
+    correlation_id TEXT NOT NULL,
+    agent_id INTEGER,
+    request_messages TEXT NOT NULL,
+    response_raw TEXT,
+    response_source TEXT NOT NULL,
+    error_type TEXT,
+    error_message TEXT,
+    token_usage_prompt INTEGER DEFAULT 0,
+    token_usage_completion INTEGER DEFAULT 0,
+    latency_ms INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_traces_phone ON inference_traces(phone, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_traces_correlation ON inference_traces(correlation_id);
+
+CREATE TABLE IF NOT EXISTS turns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  phone TEXT NOT NULL,
+  user_text TEXT NOT NULL,
+  assistant_text TEXT NOT NULL,
+  user_correlation_id TEXT,
+  assistant_correlation_id TEXT,
+  message_ids TEXT DEFAULT '[]',
+  session_id TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (phone) REFERENCES conversations(phone),
+  FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_turns_phone_created ON turns(phone, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id);

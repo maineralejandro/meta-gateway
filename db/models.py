@@ -53,6 +53,7 @@ class Message:
     media_url: str | None = None
     meta_message_id: str | None = None
     session_id: str | None = None
+    correlation_id: str | None = None
     created_at: str | None = None
 
 
@@ -80,6 +81,7 @@ class AgentDecision:
     escalate_reason: str | None = None
     history_count: int = 0
     agent_name: str = ""
+    correlation_id: str | None = None
     created_at: str | None = None
 
 
@@ -89,6 +91,17 @@ class ConversationMemory:
     summary: str = ""
     key_facts: str = "[]"
     total_messages_summarized: int = 0
+    updated_at: str | None = None
+
+
+@dataclass
+class AgentCapability:
+    id: int | None = None
+    agent_id: int = 0
+    capability_name: str = ""
+    is_active: int = 1
+    config_json: str = "{}"
+    created_at: str | None = None
     updated_at: str | None = None
 
 
@@ -139,7 +152,7 @@ def row_to_message(row: aiosqlite.Row | None) -> Message | None:
         media_url=row["media_url"],
         meta_message_id=row["meta_message_id"],
         session_id=row["session_id"],
-        created_at=row["created_at"],
+        correlation_id=row["correlation_id"] if "correlation_id" in row.keys() else None,  # noqa: SIM118        created_at=row["created_at"],
     )
 
 
@@ -171,7 +184,7 @@ def row_to_agent_decision(row: aiosqlite.Row | None) -> AgentDecision | None:
         escalate_reason=row["escalate_reason"],
         history_count=row["history_count"],
         agent_name=row["agent_name"],
-        created_at=row["created_at"],
+        correlation_id=row["correlation_id"] if "correlation_id" in row.keys() else None,  # noqa: SIM118        created_at=row["created_at"],
     )
 
 
@@ -184,4 +197,109 @@ def row_to_memory(row: aiosqlite.Row | None) -> ConversationMemory | None:
         key_facts=row["key_facts"],
         total_messages_summarized=row["total_messages_summarized"],
         updated_at=row["updated_at"],
+    )
+
+
+def row_to_agent_capability(row: aiosqlite.Row | None) -> AgentCapability | None:
+    if row is None:
+        return None
+    return AgentCapability(
+        id=row["id"],
+        agent_id=row["agent_id"],
+        capability_name=row["capability_name"],
+        is_active=row["is_active"],
+        config_json=row["config_json"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+@dataclass
+class AgentTemplate:
+    id: int | None = None
+    name: str = ""
+    description: str = ""
+    system_prompt_template: str = ""
+    capabilities: str = "[]"
+    fallback_responses: str = "{}"
+    created_at: str | None = None
+
+
+def row_to_agent_template(row: aiosqlite.Row | None) -> AgentTemplate | None:
+    if row is None:
+        return None
+    return AgentTemplate(
+        id=row["id"],
+        name=row["name"],
+        description=row["description"],
+        system_prompt_template=row["system_prompt_template"],
+        capabilities=row["capabilities"],
+        fallback_responses=row["fallback_responses"],
+        created_at=row["created_at"],
+    )
+
+
+@dataclass
+class Turn:
+    id: int | None = None
+    phone: str = ""
+    user_text: str = ""
+    assistant_text: str = ""
+    user_correlation_id: str | None = None
+    assistant_correlation_id: str | None = None
+    message_ids: str = "[]"
+    session_id: str | None = None
+    created_at: str | None = None
+
+
+def row_to_turn(row: aiosqlite.Row | None) -> Turn | None:
+    if row is None:
+        return None
+    return Turn(
+        id=row["id"],
+        phone=row["phone"],
+        user_text=row["user_text"],
+        assistant_text=row["assistant_text"],
+        user_correlation_id=row["user_correlation_id"],
+        assistant_correlation_id=row["assistant_correlation_id"],
+        message_ids=row["message_ids"] if "message_ids" in row else "[]",  # noqa: SIM401
+        session_id=row["session_id"] if "session_id" in row.keys() else None,  # noqa: SIM118
+        created_at=row["created_at"],
+    )
+
+
+@dataclass
+class InferenceTrace:
+    id: int | None = None
+    phone: str = ""
+    correlation_id: str = ""
+    agent_id: int | None = None
+    request_messages: str = ""
+    response_raw: str | None = None
+    response_source: str = ""
+    error_type: str | None = None
+    error_message: str | None = None
+    token_usage_prompt: int = 0
+    token_usage_completion: int = 0
+    latency_ms: int = 0
+    created_at: str | None = None
+
+
+def row_to_inference_trace(row: aiosqlite.Row | None) -> InferenceTrace | None:
+    if row is None:
+        return None
+    return InferenceTrace(
+        id=row["id"],
+        phone=row["phone"],
+        correlation_id=row["correlation_id"],
+        agent_id=row["agent_id"],
+        request_messages=row["request_messages"],
+        response_raw=row["response_raw"],
+        response_source=row["response_source"],
+        error_type=row["error_type"],
+        error_message=row["error_message"],
+        token_usage_prompt=row["token_usage_prompt"],
+        token_usage_completion=row["token_usage_completion"],
+        latency_ms=row["latency_ms"],
+        created_at=row["created_at"],
     )
