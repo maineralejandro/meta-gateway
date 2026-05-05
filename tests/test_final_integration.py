@@ -93,11 +93,12 @@ async def test_full_conversation_lifecycle():
     # Pero receive_webhook retorna inmediatamente lanzando una tarea.
     # Para el test, vamos a llamar a la lógica interna o esperar un poco.
 
-    with patch("routers.webhook._safe_process", new_callable=AsyncMock) as mock_process:
+    with patch("routers.webhook.turn_builder") as mock_tb:
+        mock_tb.debounce = AsyncMock()
         response = await receive_webhook(request)
         assert response["status"] == "processing"
         await asyncio.sleep(0)
-        mock_process.assert_called_once()
+        mock_tb.debounce.assert_called_once()
 
     # Verificar que se creó la sesión en DB
     conv = await db.get_conversation(phone)
@@ -105,12 +106,11 @@ async def test_full_conversation_lifecycle():
     assert conv.current_session_id is not None
     session_id_1 = conv.current_session_id
 
-    # 2. Simular 20 mensajes para gatillar Memoria por Capas (Summarization)
-    # Vamos a insertar mensajes directamente para ahorrar tiempo
+    # 2. Simular 20 turns para gatillar Memoria por Capas (Summarization)
     for i in range(20):
         await db.execute(
-            "INSERT INTO messages (phone, direction, source, text, session_id) VALUES (?, 'inbound', 'customer', ?, ?)",
-            (phone, f"Mensaje extra {i}", session_id_1)
+            "INSERT INTO turns (phone, user_text, assistant_text) VALUES (?, ?, ?)",
+            (phone, f"Mensaje extra {i}", f"Respuesta {i}"),
         )
     await db.commit()
 

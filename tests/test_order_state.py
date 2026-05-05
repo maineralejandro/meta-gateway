@@ -3,7 +3,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.order_state import DEFAULT_MENU_ITEMS, MENU_ITEMS, ORDER_TAG_RE, OrderState, _load_menu_from_file
+from core.capabilities.order import DEFAULT_MENU_ITEMS, MENU_ITEMS, ORDER_TAG_RE, _load_menu_from_file
+from core.order_state import OrderState
 
 
 @pytest.fixture
@@ -121,12 +122,12 @@ async def test_parse_tags_clear(os_instance):
 async def test_ensure_loaded_logs_error_on_db_failure():
     inst = OrderState()
     with patch("db.database.get_db", side_effect=RuntimeError("db down")), \
-         patch("core.order_state.logger") as mock_logger:
+         patch("core.capabilities.order.logger") as mock_logger:
         await inst._ensure_loaded("56911111111")
-    mock_logger.error.assert_called_once_with(
-        "order_load_error", phone="56911111111", error="db down"
-    )
-    assert "56911111111" in inst._loaded_phones
+        mock_logger.error.assert_called_once_with(
+            "order_load_error", phone="56911111111", error="db down"
+        )
+        assert "56911111111" in inst._loaded_phones
 
 
 @pytest.mark.asyncio
@@ -135,13 +136,13 @@ async def test_persist_logs_error_on_db_failure():
     inst._orders["56911111111"] = {"items": [{"key": "completo_normal", "name": "Completo Normal (carne)", "price": 3700, "quantity": 1}], "total": 3700}
     inst._loaded_phones.add("56911111111")
     with patch("db.database.get_db", side_effect=RuntimeError("db down")), \
-         patch("core.order_state.logger") as mock_logger:
+         patch("core.capabilities.order.logger") as mock_logger:
         await inst._persist("56911111111")
-    mock_logger.error.assert_called_once_with(
-        "order_persist_error", phone="56911111111", error="db down"
-    )
-    assert "56911111111" not in inst._orders
-    assert "56911111111" not in inst._loaded_phones
+        mock_logger.error.assert_called_once_with(
+            "order_persist_error", phone="56911111111", error="db down"
+        )
+        assert "56911111111" not in inst._orders
+        assert "56911111111" not in inst._loaded_phones
 
 
 @pytest.mark.asyncio
@@ -150,12 +151,12 @@ async def test_clear_logs_error_on_db_failure():
     inst._orders["56911111111"] = {"items": [{"key": "completo_normal", "name": "Completo Normal (carne)", "price": 3700, "quantity": 1}], "total": 3700}
     inst._loaded_phones.add("56911111111")
     with patch("db.database.get_db", side_effect=RuntimeError("db down")), \
-         patch("core.order_state.logger") as mock_logger:
+         patch("core.capabilities.order.logger") as mock_logger:
         await inst.clear("56911111111")
-    mock_logger.error.assert_called_once_with(
-        "order_clear_error", phone="56911111111", error="db down"
-    )
-    assert "56911111111" in inst._orders
+        mock_logger.error.assert_called_once_with(
+            "order_clear_error", phone="56911111111", error="db down"
+        )
+        assert "56911111111" in inst._orders
 
 
 @pytest.mark.asyncio
@@ -195,7 +196,7 @@ async def test_persist_failure_invalidates_cache():
     inst._orders["56944444444"] = {"items": [{"key": "completo_normal", "name": "Completo Normal (carne)", "price": 3700, "quantity": 1}], "total": 3700}
     inst._loaded_phones.add("56944444444")
     with patch("db.database.get_db", side_effect=RuntimeError("db down")), \
-         patch("core.order_state.logger"):
+         patch("core.capabilities.order.logger"):
         await inst._persist("56944444444")
     assert "56944444444" not in inst._orders
     assert "56944444444" not in inst._loaded_phones
@@ -221,18 +222,18 @@ def test_get_menu_returns_copy():
 
 
 def test_load_menu_from_file_returns_default_on_missing_file():
-    with patch("core.order_state.MENU_CONFIG_PATH", "/nonexistent/path/menu.json"):
+    with patch("core.capabilities.order.MENU_CONFIG_PATH", "/nonexistent/path/menu.json"):
         result = _load_menu_from_file()
-    assert result == DEFAULT_MENU_ITEMS
+        assert result == DEFAULT_MENU_ITEMS
 
 
 def test_load_menu_from_file_returns_default_on_invalid_json():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         f.write("{invalid json")
         tmp_path = f.name
-    with patch("core.order_state.MENU_CONFIG_PATH", tmp_path):
+    with patch("core.capabilities.order.MENU_CONFIG_PATH", tmp_path):
         result = _load_menu_from_file()
-    assert result == DEFAULT_MENU_ITEMS
+        assert result == DEFAULT_MENU_ITEMS
 
 
 def test_load_menu_from_file_parses_valid_json():
@@ -240,11 +241,11 @@ def test_load_menu_from_file_parses_valid_json():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         f.write(data)
         tmp_path = f.name
-    with patch("core.order_state.MENU_CONFIG_PATH", tmp_path):
+    with patch("core.capabilities.order.MENU_CONFIG_PATH", tmp_path):
         result = _load_menu_from_file()
-    assert "test_item" in result
-    assert result["test_item"]["name"] == "Test Item"
-    assert result["test_item"]["price"] == 1000
+        assert "test_item" in result
+        assert result["test_item"]["name"] == "Test Item"
+        assert result["test_item"]["price"] == 1000
 
 
 def test_load_menu_from_file_skips_items_missing_fields():
@@ -252,10 +253,10 @@ def test_load_menu_from_file_skips_items_missing_fields():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         f.write(data)
         tmp_path = f.name
-    with patch("core.order_state.MENU_CONFIG_PATH", tmp_path):
+    with patch("core.capabilities.order.MENU_CONFIG_PATH", tmp_path):
         result = _load_menu_from_file()
-    assert "good" in result
-    assert "bad" not in result
+        assert "good" in result
+        assert "bad" not in result
 
 
 @pytest.mark.asyncio
@@ -278,6 +279,6 @@ async def test_reload_menu_from_db_error_keeps_existing():
     inst = OrderState()
     original_count = len(inst._menu)
     with patch("db.database.get_db", side_effect=RuntimeError("db down")), \
-         patch("core.order_state.logger"):
+         patch("core.capabilities.order.logger"):
         await inst.reload_menu_from_db()
     assert len(inst._menu) == original_count

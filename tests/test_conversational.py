@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytest_asyncio
 
+from core.capabilities.base import registry as capability_registry
+from core.capabilities.order import OrderCapability
 from core.config import settings
 from core.memory import WINDOW_SIZE, memory_manager
 from core.order_state import order_state
@@ -39,6 +41,8 @@ async def setup_session_db():
     await conn.execute("PRAGMA foreign_keys=ON")
     await db.commit()
 
+    capability_registry.register(OrderCapability)
+
     yield
     await close_db()
 
@@ -47,6 +51,7 @@ async def setup_session_db():
 async def clean_db():
     await db.execute("DELETE FROM agent_decisions")
     await db.execute("DELETE FROM escalation_events")
+    await db.execute("DELETE FROM turns")
     await db.execute("DELETE FROM messages")
     await db.execute("DELETE FROM conversation_memory")
     await db.execute("DELETE FROM orders")
@@ -58,6 +63,8 @@ async def clean_db():
         "INSERT INTO agents (id, name, system_prompt, escalation_marker) "
         "VALUES (1, 'Hermes Bot', 'Eres Hermes. Usa tags [ORDER_ADD:key:qty].', 'ESCALATE_TO_HUMAN')"
     )
+    await db.execute("DELETE FROM agent_capabilities")
+    await db.execute("INSERT INTO agent_capabilities (agent_id, capability_name, is_active, config_json) VALUES (1, 'order', 1, '{}')")
     await db.commit()
     order_state._orders.clear()
     order_state._loaded_phones.clear()
@@ -102,12 +109,14 @@ async def turn(
         "core.hitl_router.track_task"
     ), patch(
         "core.hitl_router._safe_summarize", new=AsyncMock()
-    ):
-
-        mock_engine.generate = AsyncMock(return_value=(llm_response, llm_escalate))
+    ), patch(
+        "core.hitl_router.capability_registry"
+    ) as mock_registry:
+        mock_engine.generate = AsyncMock(return_value=(llm_response, llm_escalate, {"source": "llm"}))
         mock_engine._current_agent = None
         mock_meta.send_text = capture_send_text
         mock_emit.side_effect = capture_emit
+        mock_registry.resolve = AsyncMock(return_value=[order_state])
 
         if sentiment_result is not None:
             mock_sentiment.analyze = AsyncMock(return_value=sentiment_result)
@@ -400,7 +409,7 @@ async def test_message_dedup_in_context():
     )
     await db.commit()
 
-    context = await memory_manager.build_context(phone, current_message="Quiero completo")
+    context = await memory_manager.build_context(phone, current_message="Quiero completo", agent_id=1)
     texts = [c["content"] for c in context]
     inbound_count = sum(1 for t in texts if t == "Quiero completo")
     assert inbound_count == 0
@@ -413,14 +422,15 @@ async def test_window_newest_not_oldest():
 
     for i in range(30):
         await db.execute(
-            "INSERT INTO messages (phone, direction, source, text) VALUES (?, 'inbound', 'customer', ?)",
-            (phone, f"Mensaje {i}"),
+            "INSERT INTO turns (phone, user_text, assistant_text) VALUES (?, ?, ?)",
+            (phone, f"Mensaje {i}", f"Respuesta {i}"),
         )
     await db.commit()
 
-    context = await memory_manager.build_context(phone)
-    assert len(context) == WINDOW_SIZE
-    texts = [c["content"] for c in context]
+    context = await memory_manager.build_context(phone, agent_id=1)
+    turn_messages = [c for c in context if c["role"] in ("user", "assistant")]
+    assert len(turn_messages) == WINDOW_SIZE * 2
+    texts = [c["content"] for c in turn_messages if c["role"] == "user"]
     assert "Mensaje 14" in texts
     assert "Mensaje 29" in texts
     assert "Mensaje 0" not in texts
@@ -441,7 +451,7 @@ async def test_order_state_injected_in_context():
     await order_state.add_item(phone, "completo_vienesa_gigante", 3)
     await order_state.add_item(phone, "papas_mediana", 2)
 
-    context = await memory_manager.build_context(phone)
+    context = await memory_manager.build_context(phone, agent_id=1)
     system_msgs = [c for c in context if c["role"] == "system" and "Pedido actual" in c["content"]]
     assert len(system_msgs) == 1
     assert "Vienesa Gigante Italiana" in system_msgs[0]["content"]
@@ -512,7 +522,9 @@ async def test_error_handling_does_not_crash():
         "core.hitl_router.track_task"
     ), patch(
         "core.hitl_router._safe_summarize", new=AsyncMock()
-    ):
+    ), patch(
+        "core.hitl_router.capability_registry"
+    ) as mock_registry:
 
         mock_sentiment.analyze = AsyncMock(return_value={
             "sentiment": "neutral", "score": 0.5, "confidence": 0.8
@@ -521,6 +533,7 @@ async def test_error_handling_does_not_crash():
         mock_engine._current_agent = None
         mock_meta.send_text = AsyncMock()
         mock_emit.side_effect = capture_emit
+        mock_registry.resolve = AsyncMock(return_value=[order_state])
 
         from core.hitl_router import hitl_router
         await hitl_router.process_inbound_message(phone, "algo")
@@ -547,7 +560,8 @@ async def test_human_only_skips_processing():
     }).encode()
     sig = "sha256=" + hmac.new(b"test_secret", body, hashlib.sha256).hexdigest()
 
-    with patch("routers.webhook._safe_process", new_callable=AsyncMock) as mock_process:
+    with patch("routers.webhook.turn_builder") as mock_tb:
+        mock_tb.debounce = AsyncMock()
         request = MagicMock()
         request.body = AsyncMock(return_value=body)
         request.headers = {"X-Hub-Signature-256": sig}
@@ -557,7 +571,7 @@ async def test_human_only_skips_processing():
         if hasattr(result, "status_code"):
             pytest.fail(f"Got HTTP {result.status_code} instead of JSON response")
         assert result["status"] == "pending_human"
-        mock_process.assert_not_called()
+        mock_tb.debounce.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -577,17 +591,18 @@ async def test_pending_approval_queueing():
     }).encode()
     sig = "sha256=" + hmac.new(b"test_secret", body, hashlib.sha256).hexdigest()
 
-    with patch("routers.webhook._safe_process", new_callable=AsyncMock) as mock_process:
+    with patch("routers.webhook.turn_builder") as mock_tb:
+        mock_tb.debounce = AsyncMock()
         request = MagicMock()
         request.body = AsyncMock(return_value=body)
         request.headers = {"X-Hub-Signature-256": sig}
 
         result = await receive_webhook(request)
 
-    if hasattr(result, "status_code"):
-        pytest.fail(f"Got HTTP {result.status_code} instead of JSON response")
-    assert result["status"] == "pending_approval"
-    mock_process.assert_not_called()
+        if hasattr(result, "status_code"):
+            pytest.fail(f"Got HTTP {result.status_code} instead of JSON response")
+        assert result["status"] == "pending_approval"
+        mock_tb.debounce.assert_not_called()
 
 
 # ============================================================
@@ -694,13 +709,15 @@ async def test_webhook_duplicate_message_ignored():
     request.body = AsyncMock(return_value=body)
     request.headers = {"X-Hub-Signature-256": sig}
 
-    with patch("routers.webhook._safe_process", new_callable=AsyncMock) as mock_process:
+    with patch("routers.webhook.turn_builder") as mock_tb:
+        mock_tb.debounce = AsyncMock()
         result1 = await receive_webhook(request)
         assert result1["status"] == "processing"
         await asyncio.sleep(0)
-        assert mock_process.call_count == 1
+        assert mock_tb.debounce.call_count == 1
 
-    with patch("routers.webhook._safe_process", new_callable=AsyncMock) as mock_process:
+    with patch("routers.webhook.turn_builder") as mock_tb:
+        mock_tb.debounce = AsyncMock()
         result2 = await receive_webhook(request)
         assert result2["status"] == "duplicate"
-        mock_process.assert_not_called()
+        mock_tb.debounce.assert_not_called()

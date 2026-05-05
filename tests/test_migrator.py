@@ -31,6 +31,7 @@ def test_fresh_db(temp_db):
     assert "messages" in tables
     assert "sessions" in tables
     assert "conversation_memory" in tables
+    assert "turns" in tables
     assert "schema_migrations" in tables
 
     # Verificar columnas críticas añadidas por ALTER TABLE
@@ -39,6 +40,10 @@ def test_fresh_db(temp_db):
     assert "current_session_id" in cols
 
     cursor = conn.execute("PRAGMA table_info(messages)")
+    cols = {r[1] for r in cursor.fetchall()}
+    assert "session_id" in cols
+
+    cursor = conn.execute("PRAGMA table_info(turns)")
     cols = {r[1] for r in cursor.fetchall()}
     assert "session_id" in cols
 
@@ -53,9 +58,9 @@ def test_idempotent(temp_db):
     cursor = conn.execute("SELECT COUNT(*) FROM schema_migrations")
     count = cursor.fetchone()[0]
 
-    # Debe haber 7 migraciones registradas (001-007)
-    # 000_baseline no se registra a sí misma
-    assert count == 7
+    # Debe haber 15 migraciones registradas (001-015)
+    # 000_baseline no se registra a si misma
+    assert count == 15
     conn.close()
 
 def test_legacy_upgrade(temp_db):
@@ -133,6 +138,7 @@ def test_legacy_upgrade(temp_db):
     tables = {r[0] for r in cursor.fetchall()}
     assert "sessions" in tables
     assert "conversation_memory" in tables
+    assert "turns" in tables
     assert "schema_migrations" in tables
 
     # Verificar que las columnas nuevas se añadieron

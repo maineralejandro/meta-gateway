@@ -39,6 +39,7 @@ async def setup_session_db():
 async def clean_db():
     await db.execute("UPDATE conversations SET current_session_id = NULL")
     await db.execute("DELETE FROM agent_decisions")
+    await db.execute("DELETE FROM turns")
     await db.execute("DELETE FROM messages")
     await db.execute("DELETE FROM orders")
     await db.execute("DELETE FROM sessions")
@@ -131,3 +132,40 @@ async def test_close_session_manual():
     assert row["end_reason"] == "manual"
     assert row["summary"] == "Test summary"
     assert row["ended_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_no_timeout_does_not_create_new_session():
+    phone = "+56911114444"
+    await db.execute("INSERT INTO conversations (phone, state, agent_id, last_message_at) VALUES (?, 'BOT_ACTIVE', 1, CURRENT_TIMESTAMP)", (phone,))
+    await db.commit()
+
+    sid1 = await session_manager.get_or_create_session(phone)
+
+    await db.execute("UPDATE conversations SET last_message_at=CURRENT_TIMESTAMP WHERE phone=?", (phone,))
+    await db.commit()
+
+    sid2 = await session_manager.get_or_create_session(phone)
+
+    assert sid1 == sid2
+
+
+@pytest.mark.asyncio
+async def test_timeout_resets_state_from_pending():
+    phone = "+56955551111"
+    five_hours_ago = (datetime.now(UTC) - timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S")
+
+    await db.execute("INSERT INTO conversations (phone, state, agent_id, last_message_at) VALUES (?, 'PENDING_APPROVAL', 1, ?)", (phone, five_hours_ago))
+    await db.commit()
+
+    sid1 = await session_manager.get_or_create_session(phone)
+
+    await db.execute("UPDATE conversations SET last_message_at=? WHERE phone=?", (five_hours_ago, phone))
+    await db.commit()
+
+    sid2 = await session_manager.get_or_create_session(phone)
+
+    assert sid1 != sid2
+    conv = await db.get_conversation(phone)
+    assert conv.state == "BOT_ACTIVE"
+    assert conv.current_session_id == sid2

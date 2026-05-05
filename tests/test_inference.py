@@ -62,7 +62,7 @@ async def test_inference_loads_from_db():
     with patch.object(engine._llm, "chat_completion", return_value=mock_response), \
          patch.object(engine._llm, "get_client", return_value=MagicMock()):
         engine._llm._available = True
-        response, escalate = await engine.generate("Hi")
+        response, escalate, _trace = await engine.generate("Hi")
 
     assert response == "Hello!"
     assert escalate is False
@@ -80,10 +80,10 @@ async def test_inference_fallback_from_db():
     engine = InferenceEngine()
     engine._llm._available = False
 
-    response, _escalate = await engine.generate("hola")
+    response, _escalate, _trace = await engine.generate("hola")
     assert response == "Custom hello"
 
-    response, _escalate = await engine.generate("unknown")
+    response, _escalate, _trace = await engine.generate("unknown")
     assert response == "Custom what?"
 
 
@@ -103,7 +103,7 @@ async def test_escalation_marker_detected():
     with patch.object(engine._llm, "chat_completion", return_value=mock_response), \
          patch.object(engine._llm, "get_client", return_value=MagicMock()):
         engine._llm._available = True
-        response, escalated = await engine.generate("I'm upset")
+        response, escalated, _trace = await engine.generate("I'm upset")
 
     assert escalated is True
     assert "ESCALATE_TO_HUMAN" not in response
@@ -126,7 +126,7 @@ async def test_escalation_marker_empty_clean():
     with patch.object(engine._llm, "chat_completion", return_value=mock_response), \
          patch.object(engine._llm, "get_client", return_value=MagicMock()):
         engine._llm._available = True
-        response, escalated = await engine.generate("help")
+        response, escalated, _trace = await engine.generate("help")
 
     assert escalated is True
     assert "atendedor" in response
@@ -148,7 +148,7 @@ async def test_retry_on_rate_limit():
     with patch.object(engine._llm, "chat_completion", return_value=good_response), \
          patch.object(engine._llm, "get_client", return_value=MagicMock()):
         engine._llm._available = True
-        response, _escalated = await engine.generate("Hi")
+        response, _escalated, _trace = await engine.generate("Hi")
 
     assert response == "Hello!"
 
@@ -171,7 +171,7 @@ async def test_all_retries_fail_falls_back():
     )), \
          patch.object(engine._llm, "get_client", return_value=MagicMock()):
         engine._llm._available = True
-        response, escalated = await engine.generate("hola")
+        response, escalated, _trace = await engine.generate("hola")
 
     assert response == "Fallback!"
     assert escalated is False
@@ -189,7 +189,7 @@ async def test_generic_exception_falls_back():
     with patch.object(engine._llm, "chat_completion", side_effect=RuntimeError("unexpected")), \
          patch.object(engine._llm, "get_client", return_value=MagicMock()):
         engine._llm._available = True
-        response, _escalated = await engine.generate("test")
+        response, _escalated, _trace = await engine.generate("test")
 
     assert "Error fallback" in response
 
@@ -206,7 +206,7 @@ async def test_client_none_returns_fallback():
     engine._llm._available = True
 
     with patch.object(engine._llm, "get_client", return_value=None):
-        response, _escalated = await engine.generate("test")
+        response, _escalated, _trace = await engine.generate("test")
 
     assert "no client" in response
 
@@ -231,7 +231,7 @@ async def test_response_with_usage():
          patch("core.inference.LLM_TOKENS_PROMPT") as mock_prompt, \
          patch("core.inference.LLM_TOKENS_COMPLETION") as mock_comp:
         engine._llm._available = True
-        response, _escalated = await engine.generate("Hi")
+        response, _escalated, _trace = await engine.generate("Hi")
 
     assert response == "Hello!"
     mock_prompt.inc.assert_called_once_with(50)
@@ -254,7 +254,7 @@ async def test_response_none_content():
     with patch.object(engine._llm, "chat_completion", return_value=mock_response), \
          patch.object(engine._llm, "get_client", return_value=MagicMock()):
         engine._llm._available = True
-        response, escalated = await engine.generate("Hi")
+        response, escalated, _trace = await engine.generate("Hi")
 
     assert response == ""
     assert escalated is False
@@ -296,7 +296,7 @@ async def test_fallback_price_query():
     engine = InferenceEngine()
     engine._llm._available = False
 
-    response, _ = await engine.generate("cuanto cuesta el completo")
+    response, _, _trace = await engine.generate("cuanto cuesta el completo")
     assert "3000" in response
 
 
@@ -312,7 +312,7 @@ async def test_fallback_promo_query():
     engine = InferenceEngine()
     engine._llm._available = False
 
-    response, _ = await engine.generate("hay alguna oferta?")
+    response, _, _trace = await engine.generate("hay alguna oferta?")
     assert "2x1" in response
 
 
@@ -328,7 +328,7 @@ async def test_fallback_delivery_query():
     engine = InferenceEngine()
     engine._llm._available = False
 
-    response, _ = await engine.generate("hacen delivery?")
+    response, _, _trace = await engine.generate("hacen delivery?")
     assert "30 min" in response
 
 

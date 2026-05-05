@@ -20,31 +20,27 @@ def client():
 @pytest.fixture(autouse=True)
 def mock_deps():
     with patch("routers.webhook.verify_meta_signature", new_callable=AsyncMock, return_value=True), \
-         patch("routers.webhook.rate_limiter") as mock_rl, \
-         patch("routers.webhook.session_manager") as mock_sm, \
-         patch("routers.webhook.hitl_router") as mock_hitl, \
-         patch("routers.webhook.meta_client") as mock_mc, \
-         patch("routers.webhook.get_db") as mock_get_db, \
-         patch("routers.webhook.emit", new_callable=AsyncMock), \
-         patch("routers.webhook.track_task"), \
-         patch("routers.webhook.RATE_LIMITS", MagicMock()), \
-         patch("routers.webhook.WEBHOOK_DUPLICATES", MagicMock()):
+        patch("routers.webhook.rate_limiter") as mock_rl, \
+        patch("routers.webhook.session_manager") as mock_sm, \
+        patch("routers.webhook.turn_builder") as mock_tb, \
+        patch("routers.webhook.get_db") as mock_get_db, \
+        patch("routers.webhook.emit", new_callable=AsyncMock), \
+        patch("routers.webhook.WEBHOOK_DUPLICATES", MagicMock()), \
+        patch("routers.webhook.RATE_LIMITS", MagicMock()):
         mock_rl.is_allowed.return_value = True
         mock_sm.get_or_create_session = AsyncMock(return_value=1)
-        mock_hitl.process_inbound_message = AsyncMock()
-        mock_mc.send_text = AsyncMock(return_value={"messages": [{"id": "wamid1"}]})
+        mock_tb.debounce = AsyncMock()
 
         mock_db = MagicMock()
         mock_db.fetchone = AsyncMock(return_value=("BOT_ACTIVE", False))
-        mock_db.insert_message = AsyncMock()
+        mock_db.insert_message = AsyncMock(return_value=1)
         mock_db.execute_transaction = AsyncMock()
         mock_db.increment_session_message_count = AsyncMock()
         mock_get_db.return_value = mock_db
 
         yield {
             "db": mock_db,
-            "hitl": mock_hitl,
-            "meta_client": mock_mc,
+            "turn_builder": mock_tb,
             "session_manager": mock_sm,
             "rate_limiter": mock_rl,
         }
