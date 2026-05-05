@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 
 interface Agent {
   id: number;
-  name: str;
-  description: str;
-  system_prompt: str;
-  escalation_marker: str;
-  fallback_responses: str;
+  name: string;
+  description: string;
+  system_prompt: string;
+  escalation_marker: string;
+  fallback_responses: string;
   is_active: number;
 }
 

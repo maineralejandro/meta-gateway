@@ -9,6 +9,7 @@ import MessageInput from '../components/MessageInput'
 import NotificationBanner from '../components/NotificationBanner'
 import ErrorBanner from '../components/ErrorBanner'
 import AgentEditor from '../components/AgentEditor'
+import ObservabilityTab from '../components/observability/ObservabilityTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/ws'
@@ -68,7 +69,7 @@ function addError(prev: ErrorNotification[], message: string): ErrorNotification
 }
 
 export default function WhatsAppDashboard() {
-  const [view, setView] = useState<'conversations' | 'agent'>('conversations')
+  const [view, setView] = useState<'conversations' | 'agent' | 'observability'>('conversations')
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [selectedPhone, setSelectedPhone] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
@@ -356,12 +357,18 @@ export default function WhatsAppDashboard() {
             >
               Conversaciones
             </button>
-            <button 
-              onClick={() => setView('agent')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${view === 'agent' ? 'bg-gray-800 text-emerald-400' : 'text-gray-400 hover:text-gray-200'}`}
-            >
-              Gestión de Agente
-            </button>
+        <button
+          onClick={() => setView('agent')}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${view === 'agent' ? 'bg-gray-800 text-emerald-400' : 'text-gray-400 hover:text-gray-200'}`}
+        >
+          Gestión de Agente
+        </button>
+        <button
+          onClick={() => setView('observability')}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${view === 'observability' ? 'bg-gray-800 text-emerald-400' : 'text-gray-400 hover:text-gray-200'}`}
+        >
+          Diagnóstico
+        </button>
           </div>
         </div>
       </nav>
@@ -540,11 +547,15 @@ export default function WhatsAppDashboard() {
             )}
           </div>
           </>
-        ) : (
-          <div className="flex-1 h-full">
-            <AgentEditor />
-          </div>
-        )}
+) : view === 'agent' ? (
+  <div className="flex-1 h-full">
+    <AgentEditor />
+  </div>
+) : (
+  <div className="flex-1 h-full">
+    <ObservabilityTab />
+  </div>
+)}
       </div>
       <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar {
