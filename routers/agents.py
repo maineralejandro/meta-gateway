@@ -4,9 +4,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from core.capabilities.base import registry
 from core.inference import inference_engine
 from db.database import Database, get_db
-from db.models import Agent
+from db.models import Agent, AgentCapability
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -80,3 +81,77 @@ async def reload_agent(agent_id: int) -> dict[str, str]:
     # If the engine is using a different agent_id, it might not affect it unless it's the active one
     await inference_engine.reload()
     return {"status": "success", "message": "Inference engine cache reloaded"}
+
+
+class CapabilityUpsertItem(BaseModel):
+    capability_name: str
+    is_active: int = 1
+    config_json: str = "{}"
+
+
+class CapabilityUpsertRequest(BaseModel):
+    capabilities: list[CapabilityUpsertItem]
+
+
+class AgentCapabilityResponse(BaseModel):
+    id: int | None
+    agent_id: int
+    capability_name: str
+    is_active: int
+    config_json: str
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+@router.get("/{agent_id}/capabilities", response_model=list[AgentCapabilityResponse])
+async def get_agent_capabilities(agent_id: int, db: Database = Depends(get_db)) -> Any:
+    agent = await db.get_agent(agent_id=agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return await db.get_agent_capabilities(agent_id)
+
+
+@router.put("/{agent_id}/capabilities", response_model=list[AgentCapabilityResponse])
+async def upsert_agent_capabilities(
+    agent_id: int, req: CapabilityUpsertRequest, db: Database = Depends(get_db)
+) -> Any:
+    agent = await db.get_agent(agent_id=agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    available = set(registry.list_available())
+    for item in req.capabilities:
+        if item.capability_name not in available:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown capability: {item.capability_name}",
+            )
+
+    for item in req.capabilities:
+        ac = AgentCapability(
+            agent_id=agent_id,
+            capability_name=item.capability_name,
+            is_active=item.is_active,
+            config_json=item.config_json,
+        )
+        await db.upsert_agent_capability(ac)
+
+    registry.invalidate(agent_id)
+    return await db.get_agent_capabilities(agent_id)
+
+
+@router.delete("/{agent_id}/capabilities/{capability_name}")
+async def delete_agent_capability(
+    agent_id: int, capability_name: str, db: Database = Depends(get_db)
+) -> dict[str, str]:
+    agent = await db.get_agent(agent_id=agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    existing = await db.get_agent_capabilities(agent_id)
+    if not any(c.capability_name == capability_name for c in existing):
+        raise HTTPException(status_code=404, detail="Capability not assigned to agent")
+
+    await db.delete_agent_capability(agent_id, capability_name)
+    registry.invalidate(agent_id)
+    return {"status": "ok"}
