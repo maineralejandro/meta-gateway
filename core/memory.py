@@ -1,16 +1,35 @@
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 
+from core.capabilities.base import BaseCapability
+from core.capabilities.base import registry as capability_registry
 from core.llm_client import LLMClient
-from core.order_state import order_state
 from db.database import db
 
 logger = structlog.get_logger()
 
 WINDOW_SIZE = 16
 SUMMARIZE_THRESHOLD = 15
+
+EPISODIC_PROMPT = """Eres un asistente de gestión de memoria episódica. Genera un resumen de esta sesión de conversación de WhatsApp.
+
+SESIÓN INICIADA: {session_started}
+TURNO ACTUAL: {current_time}
+
+MENSAJES DE LA SESIÓN:
+{messages}
+
+INSTRUCCIONES:
+1. Genera un resumen detallado de esta sesión específica (máximo 5 frases).
+2. Incluye contexto temporal explícito: qué pidió el cliente, cuándo, y el resultado.
+3. Menciona datos específicos: productos, montos, dirección, horarios, nombres.
+4. Si el cliente expresó preferencias o quejas, inclúyelas.
+5. El resumen debe permitir entender qué pasó en esta sesión sin leer los mensajes originales.
+
+Responde con un texto plano (no JSON), comenzando con "Sesión del [fecha] —":"""
 
 SUMMARY_PROMPT = """Eres un asistente de gestión de memoria. Actualiza el resumen de esta conversación de WhatsApp.
 
@@ -22,8 +41,9 @@ MENSAJES NUEVOS:
 
 INSTRUCCIONES:
 1. Genera un resumen conciso (máximo 3 frases) que combine el resumen anterior con la información nueva.
-2. Extrae datos clave del cliente en formato JSON: nombre, dirección, productos pedidos, monto, preferencias.
+2. Extrae datos clave del cliente en formato JSON: nombre, dirección, productos pedidos, monto, preferencias, horarios habituales, método de pago, alergias o restricciones, quejas previas.
 3. Si un dato nuevo contradice uno anterior, usa el nuevo.
+4. Sé exhaustivo con los key_facts: cada dato factual del cliente debe ser un item separado.
 
 Responde EXACTAMENTE con este formato JSON:
 {{"summary": "resumen aquí", "key_facts": ["dato1", "dato2", ...]}}"""
@@ -33,10 +53,33 @@ class MemoryManager:
     def __init__(self) -> None:
         self._llm = LLMClient(max_retries=2, retry_delays=[1.0, 2.0], timeout=30.0)
 
-    async def build_context(self, phone: str, current_message: str | None = None) -> list[dict[str, Any]]:
+    @staticmethod
+    def _format_turn_user_text(user_text: str) -> str | None:
+        if not user_text:
+            return None
+        lines = [line.strip() for line in user_text.split("\n\n") if line.strip()]
+        non_media_lines = []
+        for line in lines:
+            stripped = line
+            if stripped.startswith("[") and not stripped.startswith("[location]"):
+                continue
+            non_media_lines.append(line)
+        if not non_media_lines:
+            return None
+        return "\n\n".join(non_media_lines)
+
+    async def build_context(
+        self,
+        phone: str,
+        current_message: str | None = None,
+        agent_id: int | None = None,
+        capabilities: list[BaseCapability] | None = None,
+    ) -> list[dict[str, Any]]:
         memory = await db.get_memory(phone)
-        recent_msgs = await db.get_messages(phone, limit=WINDOW_SIZE, desc=True)
-        recent_msgs = list(reversed(recent_msgs))
+        recent_turns = await db.get_turns(phone, limit=WINDOW_SIZE, desc=True)
+        recent_turns = list(reversed(recent_turns))
+
+        current_session_id = recent_turns[-1].session_id if recent_turns else None
 
         context = []
 
@@ -46,24 +89,39 @@ class MemoryManager:
                 summary_text += f"\nDatos clave del cliente: {memory.key_facts}"
             context.append({"role": "system", "content": summary_text})
 
-        order_context = await order_state.format_for_context(phone)
-        if order_context:
-            context.append({"role": "system", "content": order_context})
+        session_summaries = await db.get_session_summaries(phone, limit=3)
+        session_summaries = [s for s in session_summaries if s["session_id"] != current_session_id]
+        if session_summaries:
+            reversed_summaries = list(reversed(session_summaries))
+            parts = []
+            for s in reversed_summaries:
+                started = s["started_at"] or "fecha desconocida"
+                parts.append(f"Sesión del {started}: {s['summary']}")
+            episodic_text = "Resúmenes de sesiones anteriores:\n" + "\n".join(parts)
+            context.append({"role": "system", "content": episodic_text})
 
-        for msg in recent_msgs:
-            if current_message and msg.direction == "inbound" and msg.text == current_message:
-                continue
-            if msg.text and not msg.text.startswith("["):
-                role = "user" if msg.direction == "inbound" else "assistant"
-                context.append({"role": role, "content": msg.text})
-            elif msg.text and msg.text.startswith("[location]"):
-                context.append({"role": "user", "content": msg.text})
+        resolved = capabilities if capabilities is not None else await capability_registry.resolve(agent_id)
+        for cap in resolved:
+            cap_context = await cap.format_for_context(phone, cap.config)
+            if cap_context:
+                context.append({"role": "system", "content": cap_context})
+
+        prev_session_id = None
+        for turn in recent_turns:
+            if turn.session_id != prev_session_id and prev_session_id is not None:
+                context.append({"role": "system", "content": "--- Sesión anterior ---"})
+            prev_session_id = turn.session_id
+
+            user_text = self._format_turn_user_text(turn.user_text)
+            if user_text:
+                context.append({"role": "user", "content": user_text})
+            context.append({"role": "assistant", "content": turn.assistant_text})
 
         return context
 
     async def maybe_summarize(self, phone: str) -> None:
         memory = await db.get_memory(phone)
-        total = await db.count_messages(phone)
+        total = await db.count_turns(phone)
         already_summarized = memory.total_messages_summarized if memory else 0
 
         new_since_last = total - already_summarized
@@ -75,13 +133,21 @@ class MemoryManager:
             logger.warning("memory_summarize_skipped_no_llm", phone=phone)
             return
 
-        all_msgs = await db.get_messages(phone, limit=total)
-        msgs_to_summarize = all_msgs[:-WINDOW_SIZE] if len(all_msgs) > WINDOW_SIZE else all_msgs
+        all_turns = await db.get_turns(phone, limit=total)
+
+        current_session_id = all_turns[-1].session_id if all_turns else None
+        if current_session_id:
+            turns_to_summarize = [t for t in all_turns if t.session_id != current_session_id]
+        else:
+            turns_to_summarize = all_turns[:-WINDOW_SIZE] if len(all_turns) > WINDOW_SIZE else all_turns
+
+        if not turns_to_summarize:
+            return
 
         formatted = []
-        for msg in msgs_to_summarize:
-            prefix = "Cliente" if msg.direction == "inbound" else "Bot"
-            formatted.append(f"{prefix}: {msg.text or '[media]'}")
+        for turn in turns_to_summarize:
+            formatted.append(f"Cliente: {turn.user_text}")
+            formatted.append(f"Bot: {turn.assistant_text}")
         messages_text = "\n".join(formatted[-30:])
 
         previous_summary = memory.summary if memory else "Sin resumen previo."
@@ -117,15 +183,76 @@ class MemoryManager:
             summary = result.get("summary", previous_summary)
             key_facts = json.dumps(result.get("key_facts", []), ensure_ascii=False)
 
-            await db.upsert_memory(phone, summary, key_facts, total)
+            await db.upsert_memory(phone, summary, key_facts, len(turns_to_summarize))
             logger.info(
                 "memory_summarized",
                 phone=phone,
                 total_messages=total,
+                summarized_count=len(turns_to_summarize),
                 summary_length=len(summary),
             )
         except Exception as e:
             logger.error("memory_summarize_error", phone=phone, error=str(e))
+
+    async def summarize_session(self, phone: str, session_id: str) -> None:
+        turns = await db.get_turns_by_session(session_id)
+        if not turns:
+            logger.info("summarize_session_skip_no_turns", session_id=session_id, phone=phone)
+            return
+
+        client = self._llm.get_client()
+        if not client:
+            logger.warning("summarize_session_skipped_no_llm", phone=phone, session_id=session_id)
+            return
+
+        session_row = await db.fetchone("SELECT started_at FROM sessions WHERE id=?", (session_id,))
+        session_started = session_row["started_at"] if session_row else "Fecha desconocida"
+
+        formatted = []
+        for turn in turns:
+            formatted.append(f"Cliente: {turn.user_text}")
+            formatted.append(f"Bot: {turn.assistant_text}")
+        messages_text = "\n".join(formatted)
+
+        current_time = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+        try:
+            response = await self._llm.chat_completion(
+                [{
+                    "role": "user",
+                    "content": EPISODIC_PROMPT.format(
+                        session_started=session_started,
+                        current_time=current_time,
+                        messages=messages_text,
+                    ),
+                }],
+                max_tokens=400,
+                log_label="episodic_summarize",
+            )
+
+            raw_content = response.choices[0].message.content
+            if not raw_content or not raw_content.strip():
+                logger.error("summarize_session_empty_response", session_id=session_id)
+                return
+
+            summary_text = raw_content.strip()
+            await db.update_session_summary(session_id, summary_text)
+            logger.info(
+                "session_summarized",
+                phone=phone,
+                session_id=session_id,
+                summary_length=len(summary_text),
+                turn_count=len(turns),
+            )
+        except Exception as e:
+            logger.error("summarize_session_error", phone=phone, session_id=session_id, error=str(e))
+
+
+async def _safe_summarize_session(phone: str, session_id: str) -> None:
+    try:
+        await memory_manager.summarize_session(phone, session_id)
+    except Exception as e:
+        logger.error("safe_summarize_session_error", phone=phone, session_id=session_id, error=str(e))
 
 
 memory_manager = MemoryManager()
