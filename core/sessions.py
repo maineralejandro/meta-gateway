@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import structlog
 
@@ -35,10 +35,10 @@ class SessionManager:
         conv = await _db.get_conversation(phone)
 
         if not conv:
-            return await _db.create_session(phone)
+            return cast(str, await _db.create_session(phone))
 
         if not conv.current_session_id:
-            return await _db.create_session(phone)
+            return cast(str, await _db.create_session(phone))
 
         if conv.last_message_at:
             try:
@@ -70,12 +70,12 @@ class SessionManager:
                     if conv.state != "BOT_ACTIVE":
                         await _db.update_conversation_state(phone, "BOT_ACTIVE", requires_human_review=False)
 
-                    return await _db.create_session(phone)
+                    return cast(str, await _db.create_session(phone))
             except Exception as e:
                 logger.error("session_timeout_check_error", error=str(e), phone=phone)
-                return conv.current_session_id
+                return cast(str, conv.current_session_id)
 
-        return conv.current_session_id
+        return cast(str, conv.current_session_id)
 
 
 session_manager = SessionManager()

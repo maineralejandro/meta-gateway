@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     import aiosqlite
@@ -17,7 +17,7 @@ class BaseRepository:
     async def _fetchone(self, query: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
         conn = await self._get_conn()
         cursor = await conn.execute(query, params)
-        return await cursor.fetchone()
+        return cast("aiosqlite.Row | None", await cursor.fetchone())
 
     async def _fetchall(self, query: str, params: tuple[Any, ...] = ()) -> list[aiosqlite.Row]:
         conn = await self._get_conn()
@@ -38,7 +38,7 @@ class BaseRepository:
         cursor = await conn.execute(query, params)
         await conn.commit()
         assert cursor.lastrowid is not None
-        return cursor.lastrowid
+        return cast(int, cursor.lastrowid)
 
     async def _execute_transaction(self, operations: list[tuple[str, tuple[Any, ...]]]) -> None:
         conn = await self._get_conn()

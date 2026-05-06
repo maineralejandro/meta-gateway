@@ -2,7 +2,7 @@ import asyncio
 import json
 import time
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from structlog.contextvars import bind_contextvars, clear_contextvars
@@ -149,7 +149,7 @@ class HITLRouter:
             sentiment = self._get_sentiment()
             result = await sentiment.analyze(text)
             logger.debug("sentiment_analyzed", sentiment=result.get("sentiment"), score=result.get("score"))
-            return result
+            return cast("dict[str, Any]", result)
         except Exception as e:
             logger.warning("sentiment_analysis_failed", error=str(e))
             return {"sentiment": "neutral", "score": 0.5, "confidence": 0.5}
@@ -172,7 +172,7 @@ class HITLRouter:
                 phone, current_message=text, agent_id=agent_id, capabilities=capabilities,
             )
             logger.debug("context_built", history_count=len(history))
-            return history
+            return cast("list[dict[str, Any]]", history)
         except Exception as e:
             logger.warning("context_build_failed", error=str(e))
             return []

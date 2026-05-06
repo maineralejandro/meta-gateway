@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from db.models import InferenceTrace, row_to_inference_trace
 from db.repositories.base import BaseRepository
@@ -124,4 +124,4 @@ class TraceRepository(BaseRepository):
             (f"-{days} days",),
         )
         await conn.commit()
-        return cursor.rowcount
+        return cast(int, cursor.rowcount)
