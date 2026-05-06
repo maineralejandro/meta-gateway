@@ -24,10 +24,13 @@ def test_consecutive_assistant_merged():
         {"role": "assistant", "content": "Algo mas"},
     ]
     result = _normalize_roles(messages)
-    assert len(result) == 2
-    assert result[1]["role"] == "assistant"
-    assert "Hola" in result[1]["content"]
-    assert "Algo mas" in result[1]["content"]
+    assert len(result) == 3
+    assert result[0]["role"] == "system"
+    assert result[1]["role"] == "user"
+    assert result[1]["content"] == "[mensaje anterior]"
+    assert result[2]["role"] == "assistant"
+    assert "Hola" in result[2]["content"]
+    assert "Algo mas" in result[2]["content"]
 
 
 def test_consecutive_system_merged():

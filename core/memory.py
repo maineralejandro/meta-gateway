@@ -7,7 +7,6 @@ import structlog
 from core.capabilities.base import BaseCapability
 from core.capabilities.base import registry as capability_registry
 from core.llm_client import LLMClient
-from db.database import db
 
 logger = structlog.get_logger()
 
@@ -49,10 +48,10 @@ Responde EXACTAMENTE con este formato JSON:
 {{"summary": "resumen aquí", "key_facts": ["dato1", "dato2", ...]}}"""
 
 
-class MemoryManager:
-    def __init__(self) -> None:
-        self._llm = LLMClient(max_retries=2, retry_delays=[1.0, 2.0], timeout=30.0)
+_MEDIA_TAGS = frozenset(["[image]", "[audio]", "[video]", "[document]", "[sticker]", "[contact]"])
 
+
+class MemoryManager:
     @staticmethod
     def _format_turn_user_text(user_text: str) -> str | None:
         if not user_text:
@@ -60,13 +59,23 @@ class MemoryManager:
         lines = [line.strip() for line in user_text.split("\n\n") if line.strip()]
         non_media_lines = []
         for line in lines:
-            stripped = line
-            if stripped.startswith("[") and not stripped.startswith("[location]"):
+            is_media = any(line.lower().startswith(tag) for tag in _MEDIA_TAGS)
+            if is_media:
                 continue
             non_media_lines.append(line)
         if not non_media_lines:
             return None
         return "\n\n".join(non_media_lines)
+
+    def __init__(self, db: Any = None) -> None:
+        self._db = db
+        self._llm = LLMClient(max_retries=2, retry_delays=[1.0, 2.0], timeout=30.0)
+
+    async def _resolve_db(self) -> Any:
+        if self._db is not None:
+            return self._db
+        from db.database import get_db
+        return await get_db()
 
     async def build_context(
         self,
@@ -75,8 +84,9 @@ class MemoryManager:
         agent_id: int | None = None,
         capabilities: list[BaseCapability] | None = None,
     ) -> list[dict[str, Any]]:
-        memory = await db.get_memory(phone)
-        recent_turns = await db.get_turns(phone, limit=WINDOW_SIZE, desc=True)
+        _db = await self._resolve_db()
+        memory = await _db.get_memory(phone)
+        recent_turns = await _db.get_turns(phone, limit=WINDOW_SIZE, desc=True)
         recent_turns = list(reversed(recent_turns))
 
         current_session_id = recent_turns[-1].session_id if recent_turns else None
@@ -89,7 +99,7 @@ class MemoryManager:
                 summary_text += f"\nDatos clave del cliente: {memory.key_facts}"
             context.append({"role": "system", "content": summary_text})
 
-        session_summaries = await db.get_session_summaries(phone, limit=3)
+        session_summaries = await _db.get_session_summaries(phone, limit=3)
         session_summaries = [s for s in session_summaries if s["session_id"] != current_session_id]
         if session_summaries:
             reversed_summaries = list(reversed(session_summaries))
@@ -113,15 +123,19 @@ class MemoryManager:
             prev_session_id = turn.session_id
 
             user_text = self._format_turn_user_text(turn.user_text)
-            if user_text:
-                context.append({"role": "user", "content": user_text})
+            if not user_text:
+                if not turn.assistant_text:
+                    continue
+                user_text = "[mensaje multimedia]"
+            context.append({"role": "user", "content": user_text})
             context.append({"role": "assistant", "content": turn.assistant_text})
 
         return context
 
     async def maybe_summarize(self, phone: str) -> None:
-        memory = await db.get_memory(phone)
-        total = await db.count_turns(phone)
+        _db = await self._resolve_db()
+        memory = await _db.get_memory(phone)
+        total = await _db.count_turns(phone)
         already_summarized = memory.total_messages_summarized if memory else 0
 
         new_since_last = total - already_summarized
@@ -133,7 +147,7 @@ class MemoryManager:
             logger.warning("memory_summarize_skipped_no_llm", phone=phone)
             return
 
-        all_turns = await db.get_turns(phone, limit=total)
+        all_turns = await _db.get_turns(phone, limit=total)
 
         current_session_id = all_turns[-1].session_id if all_turns else None
         if current_session_id:
@@ -183,7 +197,7 @@ class MemoryManager:
             summary = result.get("summary", previous_summary)
             key_facts = json.dumps(result.get("key_facts", []), ensure_ascii=False)
 
-            await db.upsert_memory(phone, summary, key_facts, len(turns_to_summarize))
+            await _db.upsert_memory(phone, summary, key_facts, len(turns_to_summarize))
             logger.info(
                 "memory_summarized",
                 phone=phone,
@@ -195,7 +209,8 @@ class MemoryManager:
             logger.error("memory_summarize_error", phone=phone, error=str(e))
 
     async def summarize_session(self, phone: str, session_id: str) -> None:
-        turns = await db.get_turns_by_session(session_id)
+        _db = await self._resolve_db()
+        turns = await _db.get_turns_by_session(session_id)
         if not turns:
             logger.info("summarize_session_skip_no_turns", session_id=session_id, phone=phone)
             return
@@ -205,7 +220,7 @@ class MemoryManager:
             logger.warning("summarize_session_skipped_no_llm", phone=phone, session_id=session_id)
             return
 
-        session_row = await db.fetchone("SELECT started_at FROM sessions WHERE id=?", (session_id,))
+        session_row = await _db.fetchone("SELECT started_at FROM sessions WHERE id=?", (session_id,))
         session_started = session_row["started_at"] if session_row else "Fecha desconocida"
 
         formatted = []
@@ -236,7 +251,7 @@ class MemoryManager:
                 return
 
             summary_text = raw_content.strip()
-            await db.update_session_summary(session_id, summary_text)
+            await _db.update_session_summary(session_id, summary_text)
             logger.info(
                 "session_summarized",
                 phone=phone,

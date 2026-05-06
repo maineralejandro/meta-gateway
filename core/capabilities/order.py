@@ -230,5 +230,9 @@ class OrderCapability(BaseCapability):
             "Si el cliente quita un item: [ORDER_REMOVE:clave] o [ORDER_REMOVE:clave:cantidad]\n"
             "Si el cliente quiere empezar de cero: [ORDER_CLEAR]\n\n"
             "Los tags NO son visibles para el cliente. Escríbelos SIEMPRE al final de tu"
-            " respuesta cuando agregues items."
+            " respuesta cuando agregues items.\n\n"
+            "IMPORTANTE: Solo incluye tags [ORDER_ADD], [ORDER_REMOVE] o [ORDER_CLEAR]"
+            " cuando el cliente haya explícitamente agregado, quitado o limpiado items."
+            " NUNCA incluyas estos tags en saludos, despedidas o respuestas donde no se"
+            " modifique el pedido."
         )

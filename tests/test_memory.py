@@ -164,9 +164,65 @@ async def test_build_context_filters_media():
 
     context = await manager.build_context(phone, agent_id=1)
     user_msgs = [c for c in context if c["role"] == "user"]
+    asst_msgs = [c for c in context if c["role"] == "assistant"]
+    assert len(user_msgs) == 3
+    assert len(asst_msgs) == 3
+    assert user_msgs[0]["content"] == "[mensaje multimedia]"
+    assert user_msgs[1]["content"] == "Duda"
+    assert user_msgs[2]["content"] == "[location] Calle 123"
+    assert asst_msgs[0]["content"] == "Recibi tu imagen"
+
+
+@pytest.mark.asyncio
+async def test_build_context_burst_format_not_filtered():
+    phone = "+56900001111"
+    manager = MemoryManager()
+
+    await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES (?, 'BOT_ACTIVE', 1)", (phone,))
+    await db.insert_turn(Turn(
+        phone=phone,
+        user_text="[1] Hola\n\n[2] Quiero un completo",
+        assistant_text="Anotado!",
+    ))
+    await db.insert_turn(Turn(
+        phone=phone,
+        user_text="[1] Chorrillana",
+        assistant_text="Agregado!",
+    ))
+    await db.commit()
+
+    context = await manager.build_context(phone, agent_id=1)
+    user_msgs = [c for c in context if c["role"] == "user"]
     assert len(user_msgs) == 2
-    assert user_msgs[0]["content"] == "Duda"
-    assert user_msgs[1]["content"] == "[location] Calle 123"
+    assert "[1] Hola" in user_msgs[0]["content"]
+    assert "[2] Quiero un completo" in user_msgs[0]["content"]
+    assert "[1] Chorrillana" in user_msgs[1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_build_context_mixed_media_and_burst():
+    phone = "+56900002222"
+    manager = MemoryManager()
+
+    await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES (?, 'BOT_ACTIVE', 1)", (phone,))
+    await db.insert_turn(Turn(
+        phone=phone,
+        user_text="[1] [audio]\n\n[2] Quiero un completo",
+        assistant_text="Anotado!",
+    ))
+    await db.insert_turn(Turn(
+        phone=phone,
+        user_text="[audio]",
+        assistant_text="No puedo escuchar audios.",
+    ))
+    await db.commit()
+
+    context = await manager.build_context(phone, agent_id=1)
+    user_msgs = [c for c in context if c["role"] == "user"]
+    assert len(user_msgs) == 2
+    assert "[1] [audio]" in user_msgs[0]["content"]
+    assert "[2] Quiero un completo" in user_msgs[0]["content"]
+    assert user_msgs[1]["content"] == "[mensaje multimedia]"
 
 @pytest.mark.asyncio
 async def test_build_context_guarantees_alternation():
@@ -186,6 +242,61 @@ async def test_build_context_guarantees_alternation():
     for i in range(0, len(non_system) - 1, 2):
         assert non_system[i]["role"] == "user", f"Expected user at index {i}, got {non_system[i]['role']}"
         assert non_system[i + 1]["role"] == "assistant", f"Expected assistant at index {i+1}, got {non_system[i+1]['role']}"
+
+
+@pytest.mark.asyncio
+async def test_build_context_media_only_turn_gets_placeholder():
+    phone = "+56955556666"
+    manager = MemoryManager()
+
+    await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES (?, 'BOT_ACTIVE', 1)", (phone,))
+    await db.insert_turn(Turn(
+        phone=phone,
+        user_text="[audio]",
+        assistant_text="No puedo escuchar audios, escribe tu mensaje.",
+    ))
+    await db.insert_turn(Turn(
+        phone=phone,
+        user_text="Quiero un completo",
+        assistant_text="Anotado!",
+    ))
+    await db.commit()
+
+    context = await manager.build_context(phone, agent_id=1)
+    user_msgs = [c for c in context if c["role"] == "user"]
+    asst_msgs = [c for c in context if c["role"] == "assistant"]
+    assert len(user_msgs) == 2
+    assert len(asst_msgs) == 2
+    assert user_msgs[0]["content"] == "[mensaje multimedia]"
+    assert user_msgs[1]["content"] == "Quiero un completo"
+
+    non_system = [c for c in context if c["role"] != "system"]
+    for i in range(0, len(non_system) - 1, 2):
+        assert non_system[i]["role"] == "user", f"Media-only turn broke alternation at index {i}"
+
+
+@pytest.mark.asyncio
+async def test_build_context_empty_user_empty_assistant_skips_turn():
+    phone = "+56955557777"
+    manager = MemoryManager()
+
+    await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES (?, 'BOT_ACTIVE', 1)", (phone,))
+    await db.insert_turn(Turn(
+        phone=phone,
+        user_text="",
+        assistant_text="",
+    ))
+    await db.insert_turn(Turn(
+        phone=phone,
+        user_text="Hola",
+        assistant_text="Bienvenido",
+    ))
+    await db.commit()
+
+    context = await manager.build_context(phone, agent_id=1)
+    user_msgs = [c for c in context if c["role"] == "user"]
+    assert len(user_msgs) == 1
+    assert user_msgs[0]["content"] == "Hola"
 
 @pytest.mark.asyncio
 async def test_maybe_summarize_threshold():
@@ -452,3 +563,35 @@ async def test_maybe_summarize_skips_current_session():
     all_turns = await db.get_turns(phone, limit=100)
     current_session_turns = [t for t in all_turns if t.session_id == new_session]
     assert len(current_session_turns) == 3
+
+
+def test_format_turn_user_text_burst_not_filtered():
+    result = MemoryManager._format_turn_user_text("[1] Hola\n\n[2] Quiero un completo")
+    assert result is not None
+    assert "[1] Hola" in result
+    assert "[2] Quiero un completo" in result
+
+
+def test_format_turn_user_text_media_filtered():
+    assert MemoryManager._format_turn_user_text("[image]") is None
+    assert MemoryManager._format_turn_user_text("[audio]") is None
+    assert MemoryManager._format_turn_user_text("[video]") is None
+    assert MemoryManager._format_turn_user_text("[document]") is None
+
+
+def test_format_turn_user_text_location_kept():
+    result = MemoryManager._format_turn_user_text("[location] Calle 123")
+    assert result is not None
+    assert "[location] Calle 123" in result
+
+
+def test_format_turn_user_text_mixed_media_and_text():
+    result = MemoryManager._format_turn_user_text("[1] [audio]\n\n[2] Quiero un completo")
+    assert result is not None
+    assert "[1] [audio]" in result
+    assert "[2] Quiero un completo" in result
+
+
+def test_format_turn_user_text_empty():
+    assert MemoryManager._format_turn_user_text("") is None
+    assert MemoryManager._format_turn_user_text("[image]\n\n[audio]") is None

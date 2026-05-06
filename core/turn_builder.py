@@ -7,7 +7,6 @@ from typing import Any
 import structlog
 
 from core.events import emit
-from core.meta_client import meta_client
 
 logger = structlog.get_logger()
 
@@ -26,10 +25,17 @@ class BufferedMessage:
 class TurnBuilder:
     debounce_seconds: float = DEBOUNCE_SECONDS
 
-    def __init__(self) -> None:
+    def __init__(self, meta_client: Any = None) -> None:
+        self._meta_client = meta_client
         self._buffers: dict[str, list[BufferedMessage]] = {}
         self._timers: dict[str, asyncio.Task[None]] = {}
         self._process_turn_fn: Callable[..., Coroutine[Any, Any, None]] | None = None
+
+    def _resolve_meta_client(self) -> Any:
+        if self._meta_client is not None:
+            return self._meta_client
+        from core.meta_client import meta_client
+        return meta_client
 
     def set_process_turn_fn(self, fn: Callable[..., Coroutine[Any, Any, None]]) -> None:
         self._process_turn_fn = fn
@@ -117,7 +123,8 @@ class TurnBuilder:
             )
             try:
                 await emit("error", {"phone": phone, "error": str(e)})
-                await meta_client.send_text(
+                client = self._resolve_meta_client()
+                await client.send_text(
                     phone,
                     "Disculpa, ocurrio un error. Por favor intenta de nuevo.",
                 )

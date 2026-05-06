@@ -9,7 +9,6 @@ from core.capabilities.base import registry as capability_registry
 from core.llm_client import LLMClient
 from core.metrics import LLM_FALLBACK, LLM_TOKENS_COMPLETION, LLM_TOKENS_PROMPT
 from core.security import sanitize_llm_output
-from db.database import db
 from db.models import Agent
 
 logger = structlog.get_logger()
@@ -35,11 +34,17 @@ def _normalize_roles(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             normalized[-1]["content"] += "\n" + msg["content"]
             continue
         normalized.append(msg)
+    for i, msg in enumerate(normalized):
+        if msg["role"] != "system":
+            if msg["role"] == "assistant":
+                normalized.insert(i, {"role": "user", "content": "[mensaje anterior]"})
+            break
     return normalized
 
 
 class InferenceEngine:
-    def __init__(self) -> None:
+    def __init__(self, db: Any = None) -> None:
+        self._db = db
         self._llm = LLMClient(max_retries=3, retry_delays=[1.0, 2.0, 4.0], timeout=30.0)
         self._default_agent_id: int | None = None
         self._current_agent: Agent | None = None
@@ -47,6 +52,12 @@ class InferenceEngine:
         self._prompt_loaded_at: float = 0
         self._cache_ttl = 60
         self._agent_lock: Any = None
+
+    async def _resolve_db(self) -> Any:
+        if self._db is not None:
+            return self._db
+        from db.database import get_db
+        return await get_db()
 
     def _get_agent_lock(self) -> Any:
         import asyncio
@@ -60,7 +71,8 @@ class InferenceEngine:
         async with self._get_agent_lock():
             if force or effective_id != self._current_agent_id or (now - self._prompt_loaded_at) > self._cache_ttl:
                 logger.info("loading_agent_from_db", agent_id=effective_id)
-                agent = await db.get_agent(agent_id=effective_id, is_active=True)
+                _db = await self._resolve_db()
+                agent = await _db.get_agent(agent_id=effective_id, is_active=True)
                 if agent:
                     self._current_agent = agent
                     self._current_agent_id = effective_id

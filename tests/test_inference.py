@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from core.inference import InferenceEngine
+from core.inference import InferenceEngine, _normalize_roles
 from db.database import db as global_db
 
 TEST_DB_PATH = "/tmp/hermes_test/test_inference.db"
@@ -342,3 +342,55 @@ async def test_reload():
 
     engine = InferenceEngine()
     await engine.reload()
+
+
+def test_normalize_roles_merges_consecutive_same():
+    messages = [
+        {"role": "system", "content": "A"},
+        {"role": "system", "content": "B"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+    ]
+    result = _normalize_roles(messages)
+    assert len(result) == 3
+    assert result[0]["content"] == "A\n\nB"
+    assert result[1]["role"] == "user"
+    assert result[2]["role"] == "assistant"
+
+
+def test_normalize_roles_fixes_assistant_first():
+    messages = [
+        {"role": "system", "content": "prompt"},
+        {"role": "assistant", "content": "Hello!"},
+        {"role": "user", "content": "hi"},
+    ]
+    result = _normalize_roles(messages)
+    non_system = [m for m in result if m["role"] != "system"]
+    assert non_system[0]["role"] == "user"
+    assert non_system[1]["role"] == "assistant"
+    assert non_system[2]["role"] == "user"
+
+
+def test_normalize_roles_no_fix_needed():
+    messages = [
+        {"role": "system", "content": "prompt"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+    ]
+    result = _normalize_roles(messages)
+    assert len(result) == 3
+    assert result[1]["role"] == "user"
+    assert result[2]["role"] == "assistant"
+
+
+def test_normalize_roles_assistant_only_after_system():
+    messages = [
+        {"role": "system", "content": "prompt"},
+        {"role": "assistant", "content": "Welcome!"},
+    ]
+    result = _normalize_roles(messages)
+    non_system = [m for m in result if m["role"] != "system"]
+    assert len(non_system) == 2
+    assert non_system[0]["role"] == "user"
+    assert non_system[0]["content"] == "[mensaje anterior]"
+    assert non_system[1]["role"] == "assistant"

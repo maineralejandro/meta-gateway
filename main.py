@@ -11,6 +11,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.background import start_cleanup_task, stop_cleanup_task
+from core.container import container
 from core.capabilities.appointment import AppointmentCapability
 from core.capabilities.base import registry
 from core.capabilities.lead import LeadCapability
@@ -76,6 +77,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     registry.register(AppointmentCapability)
     registry.register(MembershipCapability)
     registry.register(LeadCapability)
+    container.build()
+    container.wire_singletons()
     setup_default_subscribers()
     APP_INFO.info({"version": "2.0.0", "llm_model": settings.LLM_MODEL or "unknown"})
     start_cleanup_task()
