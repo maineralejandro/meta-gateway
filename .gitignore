@@ -46,3 +46,4 @@ scratch/
 tests/data/
 .coverage
 logs/
+*.log
