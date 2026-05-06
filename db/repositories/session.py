@@ -21,7 +21,7 @@ class SessionRepository(BaseRepository):
         )
         await conn.commit()
         from core.metrics import refresh_active_sessions
-        await refresh_active_sessions(self)
+        await refresh_active_sessions()
         return session_id
 
     async def get_active(self, phone: str) -> Session | None:
@@ -39,7 +39,7 @@ class SessionRepository(BaseRepository):
         )
         await conn.commit()
         from core.metrics import refresh_active_sessions
-        await refresh_active_sessions(self)
+        await refresh_active_sessions()
 
     async def increment_message_count(self, session_id: str) -> None:
         await self._execute_and_commit(

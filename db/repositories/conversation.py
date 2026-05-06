@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from db.models import (
     Conversation,
     Message,
@@ -12,6 +10,12 @@ from db.repositories.base import BaseRepository
 
 
 class ConversationRepository(BaseRepository):
+    async def create(self, phone: str, agent_id: int = 1) -> None:
+        await self._execute_and_commit(
+            "INSERT INTO conversations (phone, state, agent_id, last_message_at) VALUES (?, 'BOT_ACTIVE', ?, CURRENT_TIMESTAMP)",
+            (phone, agent_id),
+        )
+
     async def get(self, phone: str) -> Conversation | None:
         row = await self._fetchone(
             """SELECT phone, contact_name, state, last_message_at,
@@ -70,7 +74,7 @@ class MessageRepository(BaseRepository):
     async def get(self, phone: str, limit: int = 100, desc: bool = False) -> list[Message]:
         order = "DESC" if desc else "ASC"
         rows = await self._fetchall(
-            f"""SELECT id, phone, direction, source, text, media_type, media_url, meta_message_id, session_id, created_at
+            f"""SELECT id, phone, direction, source, text, media_type, media_url, meta_message_id, session_id, correlation_id, created_at
             FROM messages WHERE phone=? ORDER BY created_at {order} LIMIT ?""",
             (phone, limit),
         )

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from db.models import (
     Agent,
     AgentCapability,
@@ -16,7 +14,7 @@ from db.repositories.base import BaseRepository
 
 
 class AgentRepository(BaseRepository):
-    async def get(self, agent_id: int | None = None, is_active: bool = False) -> Agent | None:
+    async def get(self, agent_id: int | None = None, is_active: bool = True) -> Agent | None:
         if agent_id:
             row = await self._fetchone("SELECT * FROM agents WHERE id=?", (agent_id,))
         elif is_active:

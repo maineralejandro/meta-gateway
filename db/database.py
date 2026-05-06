@@ -17,16 +17,6 @@ from db.models import (
     Message,
     Session,
     Turn,
-    row_to_agent,
-    row_to_agent_capability,
-    row_to_agent_decision,
-    row_to_agent_template,
-    row_to_conversation,
-    row_to_inference_trace,
-    row_to_memory,
-    row_to_message,
-    row_to_session,
-    row_to_turn,
 )
 from db.repositories.agent import (
     AgentCapabilityRepository,
@@ -129,13 +119,16 @@ class Database:
     async def get_conversation(self, phone: str) -> Conversation | None:
         return await self.conversations.get(phone)
 
+    async def create_conversation(self, phone: str, agent_id: int = 1) -> None:
+        return await self.conversations.create(phone, agent_id)
+
     async def get_all_conversations(self, limit: int = 100, offset: int = 0) -> list[Conversation]:
         return await self.conversations.get_all(limit, offset)
 
     async def get_messages(self, phone: str, limit: int = 100, desc: bool = False) -> list[Message]:
         return await self.messages.get(phone, limit, desc)
 
-    async def get_agent(self, agent_id: int | None = None, is_active: bool = False) -> Agent | None:
+    async def get_agent(self, agent_id: int | None = None, is_active: bool = True) -> Agent | None:
         return await self.agents.get(agent_id, is_active)
 
     async def get_all_agents(self) -> list[Agent]:

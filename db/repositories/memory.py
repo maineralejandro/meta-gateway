@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from db.models import ConversationMemory, row_to_memory
 from db.repositories.base import BaseRepository
 
