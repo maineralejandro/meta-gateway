@@ -58,9 +58,9 @@ def test_idempotent(temp_db):
     cursor = conn.execute("SELECT COUNT(*) FROM schema_migrations")
     count = cursor.fetchone()[0]
 
-    # Debe haber 15 migraciones registradas (001-015)
+    # Debe haber 16 migraciones registradas (001-016)
     # 000_baseline no se registra a si misma
-    assert count == 15
+    assert count == 16
     conn.close()
 
 def test_legacy_upgrade(temp_db):

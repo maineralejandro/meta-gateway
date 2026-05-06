@@ -92,7 +92,7 @@ async def db():
     conn.row_factory = aiosqlite.Row
     await conn.executescript(SCHEMA)
 
-    database = Database.__new__(Database)
+    database = Database()
     database._conn = conn
 
     yield database
