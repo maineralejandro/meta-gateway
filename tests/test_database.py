@@ -1,4 +1,5 @@
 import os
+import sqlite3
 
 import aiosqlite
 import pytest
@@ -6,79 +7,7 @@ import pytest_asyncio
 
 from db.database import Database
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS agents (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    description TEXT NOT NULL DEFAULT '',
-    system_prompt TEXT NOT NULL,
-    escalation_marker TEXT NOT NULL DEFAULT 'ESCALATE_TO_HUMAN',
-    fallback_responses TEXT NOT NULL DEFAULT '{}',
-    is_active INTEGER NOT NULL DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS conversations (
-    phone TEXT PRIMARY KEY,
-    contact_name TEXT,
-    state TEXT DEFAULT 'BOT_ACTIVE' CHECK(state IN ('BOT_ACTIVE','PENDING_APPROVAL','HUMAN_ONLY')),
-    last_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    requires_human_review INTEGER DEFAULT 0,
-    unread_count INTEGER DEFAULT 0,
-    sentiment_score REAL,
-    confidence REAL,
-    agent_id INTEGER DEFAULT 1,
-    current_session_id TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (agent_id) REFERENCES agents(id),
-    FOREIGN KEY (current_session_id) REFERENCES sessions(id)
-);
-CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    phone TEXT NOT NULL,
-    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    ended_at TIMESTAMP,
-    end_reason TEXT,
-    summary TEXT,
-    message_count INTEGER DEFAULT 0,
-    FOREIGN KEY (phone) REFERENCES conversations(phone)
-);
-CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    phone TEXT NOT NULL,
-    direction TEXT NOT NULL CHECK(direction IN ('inbound','outbound')),
-    source TEXT NOT NULL CHECK(source IN ('bot','human','customer')),
-    text TEXT,
-    media_type TEXT,
-    media_url TEXT,
-    meta_message_id TEXT,
-    session_id TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (phone) REFERENCES conversations(phone),
-    FOREIGN KEY (session_id) REFERENCES sessions(id)
-);
-CREATE TABLE IF NOT EXISTS escalation_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    phone TEXT NOT NULL,
-    from_state TEXT NOT NULL,
-    to_state TEXT NOT NULL,
-    reason TEXT,
-    sentiment_score REAL,
-    confidence REAL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (phone) REFERENCES conversations(phone)
-);
-CREATE TABLE IF NOT EXISTS menu_items (
-    key TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    price INTEGER NOT NULL,
-    category TEXT NOT NULL DEFAULT 'general',
-    is_available INTEGER NOT NULL DEFAULT 1,
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-"""
+SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "schema.sql")
 
 
 @pytest_asyncio.fixture
@@ -88,9 +17,15 @@ async def db():
     if os.path.exists(test_db_path):
         os.remove(test_db_path)
 
+    with open(SCHEMA_PATH) as f:
+        schema = f.read()
+
+    sync_conn = sqlite3.connect(test_db_path)
+    sync_conn.executescript(schema)
+    sync_conn.close()
+
     conn = await aiosqlite.connect(test_db_path)
     conn.row_factory = aiosqlite.Row
-    await conn.executescript(SCHEMA)
 
     database = Database()
     database._conn = conn

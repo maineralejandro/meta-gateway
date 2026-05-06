@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 import sys
@@ -33,16 +34,6 @@ async def setup_test_db():
 
     if global_db._conn:
         await global_db._conn.close()
-        global_db._conn = None
-    global_db._conn = await aiosqlite.connect(TEST_DB_PATH)
-    global_db._conn.row_factory = aiosqlite.Row
-
-    from db.migrator import run_migrations
-    run_migrations(TEST_DB_PATH)
-
-    if global_db._conn:
-        await global_db._conn.close()
-        global_db._conn = None
     global_db._conn = await aiosqlite.connect(TEST_DB_PATH)
     global_db._conn.row_factory = aiosqlite.Row
 
@@ -59,24 +50,15 @@ async def setup_test_db():
 def client():
     from fastapi.testclient import TestClient
 
-    from db.database import get_db
     from main import app
 
-    async def _override():
-        return global_db
-
-    app.dependency_overrides[get_db] = _override
-    c = TestClient(app)
-    yield c
-    app.dependency_overrides.clear()
+    return TestClient(app)
 
 
-async def _insert_trace(phone, source, error_type=None, error_message=None, correlation_id="abc123"):
+async def _insert_trace(phone, source, error_type=None, error_message=None):
     trace = InferenceTrace(
         phone=phone,
-        correlation_id=correlation_id,
-        agent_id=1,
-        request_messages='[{"role":"user","content":"test"}]',
+        request_messages=json.dumps([{"role": "user", "content": "test"}]),
         response_raw="test response" if source == "llm" else None,
         response_source=source,
         error_type=error_type,
@@ -88,32 +70,31 @@ async def _insert_trace(phone, source, error_type=None, error_message=None, corr
     return await global_db.insert_trace(trace)
 
 
-def test_insert_and_get_trace():
-    trace_id = _insert_trace("+56910000001", "llm")
-    import asyncio
-    trace_id = asyncio.get_event_loop().run_until_complete(trace_id)
+@pytest.mark.asyncio
+async def test_insert_and_get_trace():
+    trace_id = await _insert_trace("+56910000001", "llm")
     assert trace_id > 0
 
 
-def test_get_traces_by_phone():
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000001", "llm"))
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000001", "fallback", error_type="unavailable"))
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56999999999", "llm"))
+@pytest.mark.asyncio
+async def test_get_traces_by_phone():
+    await _insert_trace("+56910000001", "llm")
+    await _insert_trace("+56910000001", "fallback", error_type="unavailable")
+    await _insert_trace("+56999999999", "llm")
 
-    traces = asyncio.get_event_loop().run_until_complete(global_db.get_traces("+56910000001", limit=10))
+    traces = await global_db.get_traces("+56910000001", limit=10)
     assert len(traces) == 2
     assert traces[0].phone == "+56910000001"
 
 
-def test_get_trace_stats():
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000001", "llm"))
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000001", "llm"))
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000001", "fallback", error_type="unavailable"))
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000001", "error", error_type="RateLimitError", error_message="rate limited"))
+@pytest.mark.asyncio
+async def test_get_trace_stats():
+    await _insert_trace("+56910000001", "llm")
+    await _insert_trace("+56910000001", "llm")
+    await _insert_trace("+56910000001", "fallback", error_type="unavailable")
+    await _insert_trace("+56910000001", "error", error_type="RateLimitError", error_message="rate limited")
 
-    stats = asyncio.get_event_loop().run_until_complete(global_db.get_trace_stats(hours=24))
+    stats = await global_db.get_trace_stats(hours=24)
     assert stats["total"] == 4
     assert stats["llm"] == 2
     assert stats["fallback"] == 1
@@ -122,30 +103,30 @@ def test_get_trace_stats():
     assert stats["avg_latency"] == 50
 
 
-def test_get_last_error():
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000001", "llm"))
-    asyncio.get_event_loop().run_until_complete(
-        _insert_trace("+56910000001", "error", error_type="RateLimitError", error_message="rate limited")
+@pytest.mark.asyncio
+async def test_get_last_error():
+    await _insert_trace("+56910000001", "llm")
+    await _insert_trace(
+        "+56910000001", "error", error_type="RateLimitError", error_message="rate limited"
     )
 
-    last_error = asyncio.get_event_loop().run_until_complete(global_db.get_last_error())
+    last_error = await global_db.get_last_error()
     assert last_error is not None
     assert last_error["error_type"] == "RateLimitError"
     assert last_error["error_message"] == "rate limited"
 
 
-def test_get_last_error_none():
-    import asyncio
-    last_error = asyncio.get_event_loop().run_until_complete(global_db.get_last_error())
+@pytest.mark.asyncio
+async def test_get_last_error_none():
+    last_error = await global_db.get_last_error()
     assert last_error is None
 
 
-def test_debug_trace_endpoint(client):
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000001", "llm"))
-    asyncio.get_event_loop().run_until_complete(
-        _insert_trace("+56910000001", "error", error_type="RuntimeError", error_message="LLM down")
+@pytest.mark.asyncio
+async def test_debug_trace_endpoint(client):
+    await _insert_trace("+56910000001", "llm")
+    await _insert_trace(
+        "+56910000001", "error", error_type="RuntimeError", error_message="LLM down"
     )
 
     resp = client.get("/api/debug/trace/+56910000001", headers=AUTH)
@@ -158,9 +139,9 @@ def test_debug_trace_endpoint(client):
     assert error_trace["error_type"] == "RuntimeError"
 
 
-def test_debug_trace_full_endpoint(client):
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000001", "llm"))
+@pytest.mark.asyncio
+async def test_debug_trace_full_endpoint(client):
+    await _insert_trace("+56910000001", "llm")
 
     resp = client.get("/api/debug/trace/+56910000001/full", headers=AUTH)
     assert resp.status_code == 200
@@ -170,9 +151,9 @@ def test_debug_trace_full_endpoint(client):
     assert "response_raw" in data[0]
 
 
-def test_debug_health_detail_endpoint(client):
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000001", "llm"))
+@pytest.mark.asyncio
+async def test_debug_health_detail_endpoint(client):
+    await _insert_trace("+56910000001", "llm")
 
     resp = client.get("/api/debug/health-detail", headers=AUTH)
     assert resp.status_code == 200
@@ -182,46 +163,41 @@ def test_debug_health_detail_endpoint(client):
     assert data["trace_stats_24h"]["total"] >= 1
 
 
-def test_correlation_id_in_messages():
-    import asyncio
-    async def _test():
-        msg_id = await global_db.insert_message(
-            "+56910000001", "inbound", "customer", "Hola",
-            correlation_id="test-corr-123",
-        )
-        rows = await global_db.fetchall(
-            "SELECT id, correlation_id FROM messages WHERE id = ?",
-            (msg_id,),
-        )
-        assert len(rows) == 1
-        assert rows[0][1] == "test-corr-123"
-
-    asyncio.get_event_loop().run_until_complete(_test())
+@pytest.mark.asyncio
+async def test_correlation_id_in_messages():
+    msg_id = await global_db.insert_message(
+        "+56910000001", "inbound", "customer", "Hola",
+        correlation_id="test-corr-123",
+    )
+    rows = await global_db.fetchall(
+        "SELECT id, correlation_id FROM messages WHERE id = ?",
+        (msg_id,),
+    )
+    assert len(rows) == 1
+    assert rows[0][1] == "test-corr-123"
 
 
-def test_correlation_id_in_decisions():
-    import asyncio
-    async def _test():
-        from db.models import AgentDecision
-        decision = AgentDecision(
-            phone="+56910000001",
-            sentiment="neutral",
-            sentiment_score=0.5,
-            confidence=0.5,
-            correlation_id="test-corr-456",
-        )
-        decision_id = await global_db.insert_agent_decision(decision)
-        rows = await global_db.fetchall(
-            "SELECT id, correlation_id FROM agent_decisions WHERE id = ?",
-            (decision_id,),
-        )
-        assert len(rows) == 1
-        assert rows[0][1] == "test-corr-456"
-
-    asyncio.get_event_loop().run_until_complete(_test())
+@pytest.mark.asyncio
+async def test_correlation_id_in_decisions():
+    from db.models import AgentDecision
+    decision = AgentDecision(
+        phone="+56910000001",
+        sentiment="neutral",
+        sentiment_score=0.5,
+        confidence=0.5,
+        correlation_id="test-corr-456",
+    )
+    decision_id = await global_db.insert_agent_decision(decision)
+    rows = await global_db.fetchall(
+        "SELECT id, correlation_id FROM agent_decisions WHERE id = ?",
+        (decision_id,),
+    )
+    assert len(rows) == 1
+    assert rows[0][1] == "test-corr-456"
 
 
-def test_inference_returns_trace_dict():
+@pytest.mark.asyncio
+async def test_inference_returns_trace_dict():
     from unittest.mock import AsyncMock, MagicMock, patch
 
     from core.inference import InferenceEngine
@@ -238,32 +214,28 @@ def test_inference_returns_trace_dict():
     engine._llm._available = True
     with patch.object(engine._llm, "chat_completion", return_value=mock_response), \
          patch.object(engine, "_load_agent", AsyncMock(return_value=None)):
-        import asyncio
-        _text, _escalate, trace = asyncio.get_event_loop().run_until_complete(
-            engine.generate("Hola")
-        )
-        assert trace["source"] == "llm"
-        assert trace["token_usage_prompt"] == 50
-        assert trace["token_usage_completion"] == 20
-        assert trace["latency_ms"] >= 0
-        assert trace["response_raw"] == "Hola, ¿en qué te ayudo?"
+        _text, _escalate, trace = await engine.generate("Hola")
+    assert trace["source"] == "llm"
+    assert trace["token_usage_prompt"] == 50
+    assert trace["token_usage_completion"] == 20
+    assert trace["latency_ms"] >= 0
+    assert trace["response_raw"] == "Hola, ¿en qué te ayudo?"
 
 
-def test_inference_fallback_returns_trace():
+@pytest.mark.asyncio
+async def test_inference_fallback_returns_trace():
     from core.inference import InferenceEngine
 
     engine = InferenceEngine()
     engine._llm._available = False
 
-    import asyncio
-    _text, _escalate, trace = asyncio.get_event_loop().run_until_complete(
-        engine.generate("Hola")
-    )
+    _text, _escalate, trace = await engine.generate("Hola")
     assert trace["source"] == "fallback"
     assert trace["error_type"] == "unavailable"
 
 
-def test_fallback_metric_incremented():
+@pytest.mark.asyncio
+async def test_fallback_metric_incremented():
     from prometheus_client import REGISTRY
 
     try:
@@ -275,8 +247,7 @@ def test_fallback_metric_incremented():
     engine = InferenceEngine()
     engine._llm._available = False
 
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(engine.generate("test"))
+    await engine.generate("test")
 
     try:
         after = REGISTRY.get_sample_value("hermes_llm_fallback_total", {"reason": "unavailable"})
@@ -286,63 +257,63 @@ def test_fallback_metric_incremented():
     assert after is not None and after >= (metric or 0)
 
 
-def test_get_recent_traces_all():
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000001", "llm"))
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000002", "fallback", error_type="unavailable"))
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000003", "error", error_type="TimeoutError", error_message="timed out"))
+@pytest.mark.asyncio
+async def test_get_recent_traces_all():
+    await _insert_trace("+56910000001", "llm")
+    await _insert_trace("+56910000002", "fallback", error_type="unavailable")
+    await _insert_trace("+56910000003", "error", error_type="TimeoutError", error_message="timed out")
 
-    traces = asyncio.get_event_loop().run_until_complete(global_db.get_recent_traces(limit=50))
+    traces = await global_db.get_recent_traces(limit=50)
     assert len(traces) == 3
     phones = {t.phone for t in traces}
     assert phones == {"+56910000001", "+56910000002", "+56910000003"}
 
 
-def test_get_recent_traces_filtered():
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000001", "llm"))
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000002", "fallback", error_type="unavailable"))
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000003", "error", error_type="TimeoutError", error_message="timed out"))
+@pytest.mark.asyncio
+async def test_get_recent_traces_filtered():
+    await _insert_trace("+56910000001", "llm")
+    await _insert_trace("+56910000002", "fallback", error_type="unavailable")
+    await _insert_trace("+56910000003", "error", error_type="TimeoutError", error_message="timed out")
 
-    traces = asyncio.get_event_loop().run_until_complete(global_db.get_recent_traces(limit=50, source="llm"))
+    traces = await global_db.get_recent_traces(limit=50, source="llm")
     assert len(traces) == 1
     assert traces[0].response_source == "llm"
 
-    fb_traces = asyncio.get_event_loop().run_until_complete(global_db.get_recent_traces(limit=50, source="fallback"))
+    fb_traces = await global_db.get_recent_traces(limit=50, source="fallback")
     assert len(fb_traces) == 1
     assert fb_traces[0].response_source == "fallback"
 
 
-def test_get_recent_traces_limit():
-    import asyncio
+@pytest.mark.asyncio
+async def test_get_recent_traces_limit():
     for i in range(5):
-        asyncio.get_event_loop().run_until_complete(_insert_trace(f"+5691000000{i}", "llm"))
+        await _insert_trace(f"+5691000000{i}", "llm")
 
-    traces = asyncio.get_event_loop().run_until_complete(global_db.get_recent_traces(limit=3))
+    traces = await global_db.get_recent_traces(limit=3)
     assert len(traces) == 3
 
 
-def test_get_trace_by_id():
-    import asyncio
-    trace_id = asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000001", "llm"))
+@pytest.mark.asyncio
+async def test_get_trace_by_id():
+    trace_id = await _insert_trace("+56910000001", "llm")
 
-    trace = asyncio.get_event_loop().run_until_complete(global_db.get_trace_by_id(trace_id))
+    trace = await global_db.get_trace_by_id(trace_id)
     assert trace is not None
     assert trace.id == trace_id
     assert trace.phone == "+56910000001"
     assert trace.response_source == "llm"
 
 
-def test_get_trace_by_id_not_found():
-    import asyncio
-    trace = asyncio.get_event_loop().run_until_complete(global_db.get_trace_by_id(99999))
+@pytest.mark.asyncio
+async def test_get_trace_by_id_not_found():
+    trace = await global_db.get_trace_by_id(99999)
     assert trace is None
 
 
-def test_recent_traces_endpoint(client):
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000001", "llm"))
-    asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000002", "error", error_type="TimeoutError", error_message="timed out"))
+@pytest.mark.asyncio
+async def test_recent_traces_endpoint(client):
+    await _insert_trace("+56910000001", "llm")
+    await _insert_trace("+56910000002", "error", error_type="TimeoutError", error_message="timed out")
 
     resp = client.get("/api/debug/traces/recent", headers=AUTH)
     assert resp.status_code == 200
@@ -355,9 +326,9 @@ def test_recent_traces_endpoint(client):
     assert resp_filtered.json()[0]["response_source"] == "error"
 
 
-def test_trace_by_id_endpoint(client):
-    import asyncio
-    trace_id = asyncio.get_event_loop().run_until_complete(_insert_trace("+56910000001", "llm"))
+@pytest.mark.asyncio
+async def test_trace_by_id_endpoint(client):
+    trace_id = await _insert_trace("+56910000001", "llm")
 
     resp = client.get(f"/api/debug/trace-by-id/{trace_id}", headers=AUTH)
     assert resp.status_code == 200

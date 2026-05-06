@@ -153,10 +153,11 @@ async def test_clear_logs_error_on_db_failure():
     with patch("db.database.get_db", side_effect=RuntimeError("db down")), \
          patch("core.capabilities.order.logger") as mock_logger:
         await inst.clear("56911111111")
-        mock_logger.error.assert_called_once_with(
-            "order_clear_error", phone="56911111111", error="db down"
-        )
-        assert "56911111111" in inst._orders
+    mock_logger.error.assert_called_once_with(
+        "order_clear_error", phone="56911111111", error="db down"
+    )
+    assert "56911111111" not in inst._orders
+    assert "56911111111" not in inst._loaded_phones
 
 
 @pytest.mark.asyncio

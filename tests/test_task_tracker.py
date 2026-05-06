@@ -13,13 +13,10 @@ def clear_tasks():
     tt._inflight_tasks.clear()
 
 
-def test_track_task():
-    async def create_and_track():
-        task = asyncio.create_task(asyncio.sleep(0))
-        tt.track_task(task)
-        return task
-
-    task = asyncio.get_event_loop().run_until_complete(create_and_track())
+@pytest.mark.asyncio
+async def test_track_task():
+    task = asyncio.create_task(asyncio.sleep(0))
+    tt.track_task(task)
     assert task in tt._inflight_tasks
 
 

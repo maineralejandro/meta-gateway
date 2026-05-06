@@ -394,3 +394,35 @@ def test_normalize_roles_assistant_only_after_system():
     assert non_system[0]["role"] == "user"
     assert non_system[0]["content"] == "[mensaje anterior]"
     assert non_system[1]["role"] == "assistant"
+
+
+def test_normalize_roles_relocates_intercalated_system():
+    messages = [
+        {"role": "system", "content": "original prompt"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+        {"role": "system", "content": "--- Sesión anterior ---"},
+        {"role": "user", "content": "bye"},
+        {"role": "assistant", "content": "goodbye"},
+    ]
+    result = _normalize_roles(messages)
+    system_msgs = [m for m in result if m["role"] == "system"]
+    assert len(system_msgs) == 1
+    assert "original prompt" in system_msgs[0]["content"]
+    assert "--- Sesión anterior ---" in system_msgs[0]["content"]
+    non_system = [m for m in result if m["role"] != "system"]
+    assert non_system[0]["role"] == "user"
+    assert non_system[-1]["role"] == "assistant"
+
+
+def test_normalize_roles_relocates_system_when_no_initial_system():
+    messages = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+        {"role": "system", "content": "injected"},
+        {"role": "user", "content": "bye"},
+    ]
+    result = _normalize_roles(messages)
+    assert result[0]["role"] == "system"
+    assert result[0]["content"] == "injected"
+    assert result[1]["role"] == "user"

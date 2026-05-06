@@ -36,6 +36,7 @@ def mock_deps():
         mock_db.insert_message = AsyncMock(return_value=1)
         mock_db.execute_transaction = AsyncMock()
         mock_db.increment_session_message_count = AsyncMock()
+        mock_db.create_conversation = AsyncMock()
         mock_get_db.return_value = mock_db
 
         yield {

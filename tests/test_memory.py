@@ -467,12 +467,32 @@ async def test_build_context_session_boundary_marker():
     await db.commit()
 
     context = await manager.build_context(phone, agent_id=1)
-    boundary_msgs = [c for c in context if c["role"] == "system" and "Sesión anterior" in c["content"]]
-    assert len(boundary_msgs) == 1
+    user_msgs = [c for c in context if c["role"] == "user"]
+    system_boundary = [c for c in context if c["role"] == "system" and "Sesión anterior" in c["content"]]
+    assert len(system_boundary) == 0
+    boundary_user = [m for m in user_msgs if m["content"].startswith("--- Sesión anterior ---")]
+    assert len(boundary_user) == 1
+    assert "Msg B1" in boundary_user[0]["content"]
 
 
 @pytest.mark.asyncio
-async def test_build_context_excludes_current_session_from_episodic():
+async def test_build_context_no_system_messages_between_turns():
+    phone = "+56944445556"
+    manager = MemoryManager()
+
+    await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES (?, 'BOT_ACTIVE', 1)", (phone,))
+    session_a = "sess-nosys-a"
+    session_b = "sess-nosys-b"
+    await db.execute("INSERT INTO sessions (id, phone) VALUES (?, ?)", (session_a, phone))
+    await db.execute("INSERT INTO sessions (id, phone) VALUES (?, ?)", (session_b, phone))
+    await db.insert_turn(Turn(phone=phone, user_text="Msg A1", assistant_text="Reply A1", session_id=session_a))
+    await db.insert_turn(Turn(phone=phone, user_text="Msg B1", assistant_text="Reply B1", session_id=session_b))
+    await db.commit()
+
+    context = await manager.build_context(phone, agent_id=1)
+    first_non_system = next(i for i, m in enumerate(context) if m["role"] != "system")
+    trailing_system = [m for m in context[first_non_system:] if m["role"] == "system"]
+    assert len(trailing_system) == 0
     phone = "+56966667777"
     manager = MemoryManager()
 
