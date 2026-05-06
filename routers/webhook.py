@@ -41,6 +41,88 @@ async def receive_webhook(request: Request) -> Any:
         clear_contextvars()
 
 
+async def _handle_message(msg: dict[str, Any], value: dict[str, Any], correlation_id: str) -> dict[str, Any]:
+    phone = msg["from"]
+
+    if not rate_limiter.is_allowed(phone):
+        RATE_LIMITS.inc()
+        logger.warning("rate_limit_exceeded", phone=phone)
+        return {"status": "rate_limited"}
+
+    msg_type = msg.get("type", "text")
+    meta_msg_id = msg.get("id", "")
+
+    text = ""
+    media_type = None
+    media_url = None
+
+    if msg_type == "text":
+        text = msg.get("text", {}).get("body", "")
+    else:
+        text = f"[{msg_type}]"
+        media_type = msg_type
+    if msg_type == "image":
+        media_url = msg.get("image", {}).get("id", "")
+    elif msg_type == "document":
+        media_url = msg.get("document", {}).get("id", "")
+    elif msg_type == "audio":
+        media_url = msg.get("audio", {}).get("id", "")
+    elif msg_type == "location":
+        loc = msg.get("location", {})
+        text = f"[location] {loc.get('name', '')} {loc.get('latitude')},{loc.get('longitude')}"
+
+    db = await get_db()
+
+    row = await db.fetchone(
+        "SELECT state, requires_human_review FROM conversations WHERE phone=?",
+        (phone,),
+    )
+
+    if not row:
+        await db.create_conversation(phone)
+        state = "BOT_ACTIVE"
+        requires_human = False
+    else:
+        state, requires_human = row
+
+    session_id = await session_manager.get_or_create_session(phone)
+
+    try:
+        message_id = await db.insert_message(
+            phone, "inbound", "customer", text,
+            media_type=media_type, media_url=media_url,
+            meta_message_id=meta_msg_id, session_id=session_id,
+            correlation_id=correlation_id,
+        )
+        await db.execute_transaction([
+            ("UPDATE conversations SET last_message_at=CURRENT_TIMESTAMP, unread_count=unread_count+1 WHERE phone=?", (phone,)),
+        ])
+    except Exception as e:
+        if "UNIQUE constraint" in str(e) and "meta_message_id" in str(e):
+            WEBHOOK_DUPLICATES.inc()
+            logger.info("duplicate_webhook_ignored", meta_msg_id=meta_msg_id, phone=phone)
+            return {"status": "duplicate"}
+        raise
+
+    await db.increment_session_message_count(session_id)
+
+    await emit("new-message", {
+        "phone": phone,
+        "message": text,
+        "direction": "inbound",
+        "source": "customer",
+        "state": state,
+    })
+
+    if state == "HUMAN_ONLY" or requires_human:
+        await emit("waiting-for-human", {"phone": phone})
+        return {"status": "pending_human"}
+    if state == "PENDING_APPROVAL":
+        return {"status": "pending_approval"}
+    await turn_builder.debounce(phone, text, correlation_id=correlation_id, message_id=message_id, session_id=session_id)
+    return {"status": "processing"}
+
+
 async def _receive_webhook_inner(request: Request, correlation_id: str = "") -> Any:
     body = await request.body()
     if not await verify_meta_signature(request, body):
@@ -53,88 +135,7 @@ async def _receive_webhook_inner(request: Request, correlation_id: str = "") -> 
                 value = change.get("value", {})
 
                 if "messages" in value:
-                    msg = value["messages"][0]
-                    phone = msg["from"]
-
-                    if not rate_limiter.is_allowed(phone):
-                        RATE_LIMITS.inc()
-                        logger.warning("rate_limit_exceeded", phone=phone)
-                        return {"status": "rate_limited"}
-
-                    msg_type = msg.get("type", "text")
-                    meta_msg_id = msg.get("id", "")
-
-                    text = ""
-                    media_type = None
-                    media_url = None
-
-                    if msg_type == "text":
-                        text = msg.get("text", {}).get("body", "")
-                    else:
-                        text = f"[{msg_type}]"
-                        media_type = msg_type
-                        if msg_type == "image":
-                            media_url = msg.get("image", {}).get("id", "")
-                        elif msg_type == "document":
-                            media_url = msg.get("document", {}).get("id", "")
-                        elif msg_type == "audio":
-                            media_url = msg.get("audio", {}).get("id", "")
-                        elif msg_type == "location":
-                            loc = msg.get("location", {})
-                            text = f"[location] {loc.get('name', '')} {loc.get('latitude')},{loc.get('longitude')}"
-
-                    db = await get_db()
-
-                    row = await db.fetchone(
-                        "SELECT state, requires_human_review FROM conversations WHERE phone=?",
-                        (phone,),
-                    )
-
-                    if not row:
-                        await db.execute_transaction([
-                            ("INSERT INTO conversations (phone, state, last_message_at) VALUES (?, 'BOT_ACTIVE', CURRENT_TIMESTAMP)", (phone,)),
-                        ])
-                        state = "BOT_ACTIVE"
-                        requires_human = False
-                    else:
-                        state, requires_human = row
-
-                    session_id = await session_manager.get_or_create_session(phone)
-
-                    try:
-                        message_id = await db.insert_message(
-                            phone, "inbound", "customer", text,
-                            media_type=media_type, media_url=media_url,
-                            meta_message_id=meta_msg_id, session_id=session_id,
-                            correlation_id=correlation_id,
-                        )
-                        await db.execute_transaction([
-                            ("UPDATE conversations SET last_message_at=CURRENT_TIMESTAMP, unread_count=unread_count+1 WHERE phone=?", (phone,)),
-                        ])
-                    except Exception as e:
-                        if "UNIQUE constraint" in str(e) and "meta_message_id" in str(e):
-                            WEBHOOK_DUPLICATES.inc()
-                            logger.info("duplicate_webhook_ignored", meta_msg_id=meta_msg_id, phone=phone)
-                            return {"status": "duplicate"}
-                        raise
-
-                    await db.increment_session_message_count(session_id)
-
-                    await emit("new-message", {
-                        "phone": phone,
-                        "message": text,
-                        "direction": "inbound",
-                        "source": "customer",
-                        "state": state,
-                    })
-
-                    if state == "HUMAN_ONLY" or requires_human:
-                        await emit("waiting-for-human", {"phone": phone})
-                        return {"status": "pending_human"}
-                    if state == "PENDING_APPROVAL":
-                        return {"status": "pending_approval"}
-                    await turn_builder.debounce(phone, text, correlation_id=correlation_id, message_id=message_id, session_id=session_id)
-                    return {"status": "processing"}
+                    return await _handle_message(value["messages"][0], value, correlation_id)
 
                 if "statuses" in value:
                     status = value["statuses"][0]
