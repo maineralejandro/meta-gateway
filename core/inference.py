@@ -27,13 +27,16 @@ def _normalize_roles(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if msg["role"] == "system" and last_role == "system":
             normalized[-1]["content"] += "\n\n" + msg["content"]
             continue
-        if msg["role"] == "user" and last_role == "user":
-            normalized[-1]["content"] += "\n" + msg["content"]
-            continue
-        if msg["role"] == "assistant" and last_role == "assistant":
-            normalized[-1]["content"] += "\n" + msg["content"]
-            continue
         normalized.append(msg)
+    i = len(normalized) - 1
+    while i > 0:
+        if normalized[i]["role"] == "system":
+            content = normalized.pop(i)["content"]
+            if normalized[0]["role"] == "system":
+                normalized[0]["content"] += "\n\n" + content
+            else:
+                normalized.insert(0, {"role": "system", "content": content})
+        i -= 1
     for i, msg in enumerate(normalized):
         if msg["role"] != "system":
             if msg["role"] == "assistant":
@@ -43,9 +46,9 @@ def _normalize_roles(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 class InferenceEngine:
-    def __init__(self, db: Any = None) -> None:
+    def __init__(self, db: Any = None, llm: LLMClient | None = None) -> None:
         self._db = db
-        self._llm = LLMClient(max_retries=3, retry_delays=[1.0, 2.0, 4.0], timeout=30.0)
+        self._llm = llm or LLMClient(max_retries=3, retry_delays=[1.0, 2.0, 4.0], timeout=30.0)
         self._default_agent_id: int | None = None
         self._current_agent: Agent | None = None
         self._current_agent_id: int | None = None

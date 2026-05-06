@@ -18,8 +18,8 @@ Mensaje: {message}"""
 
 
 class SentimentAnalyzer:
-    def __init__(self) -> None:
-        self._llm = LLMClient(max_retries=2, retry_delays=[1.0, 2.0], timeout=30.0)
+    def __init__(self, llm: LLMClient | None = None) -> None:
+        self._llm = llm or LLMClient(max_retries=2, retry_delays=[1.0, 2.0], timeout=30.0)
 
     async def analyze(self, text: str) -> dict[str, Any]:
         if not self._llm.available:

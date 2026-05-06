@@ -212,7 +212,6 @@ class OrderCapability(BaseCapability):
             await db.delete_order(phone)
         except Exception as e:
             logger.error("order_clear_error", phone=phone, error=str(e))
-            return
         self._orders.pop(phone, None)
         self._loaded_phones.discard(phone)
 

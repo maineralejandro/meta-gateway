@@ -67,9 +67,9 @@ class MemoryManager:
             return None
         return "\n\n".join(non_media_lines)
 
-    def __init__(self, db: Any = None) -> None:
+    def __init__(self, db: Any = None, llm: LLMClient | None = None) -> None:
         self._db = db
-        self._llm = LLMClient(max_retries=2, retry_delays=[1.0, 2.0], timeout=30.0)
+        self._llm = llm or LLMClient(max_retries=2, retry_delays=[1.0, 2.0], timeout=30.0)
 
     async def _resolve_db(self) -> Any:
         if self._db is not None:
@@ -118,15 +118,14 @@ class MemoryManager:
 
         prev_session_id = None
         for turn in recent_turns:
-            if turn.session_id != prev_session_id and prev_session_id is not None:
-                context.append({"role": "system", "content": "--- Sesión anterior ---"})
-            prev_session_id = turn.session_id
-
             user_text = self._format_turn_user_text(turn.user_text)
             if not user_text:
                 if not turn.assistant_text:
                     continue
                 user_text = "[mensaje multimedia]"
+            if turn.session_id != prev_session_id and prev_session_id is not None:
+                user_text = f"--- Sesión anterior ---\n{user_text}"
+            prev_session_id = turn.session_id
             context.append({"role": "user", "content": user_text})
             context.append({"role": "assistant", "content": turn.assistant_text})
 
@@ -261,13 +260,6 @@ class MemoryManager:
             )
         except Exception as e:
             logger.error("summarize_session_error", phone=phone, session_id=session_id, error=str(e))
-
-
-async def _safe_summarize_session(phone: str, session_id: str) -> None:
-    try:
-        await memory_manager.summarize_session(phone, session_id)
-    except Exception as e:
-        logger.error("safe_summarize_session_error", phone=phone, session_id=session_id, error=str(e))
 
 
 memory_manager = MemoryManager()

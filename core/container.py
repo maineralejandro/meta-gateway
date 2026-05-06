@@ -1,5 +1,3 @@
-from typing import Any
-
 import structlog
 
 logger = structlog.get_logger()
@@ -12,6 +10,7 @@ class ServiceContainer:
     def build(self) -> None:
         from core.hitl_router import HITLRouter
         from core.inference import InferenceEngine
+        from core.llm_client import LLMClient
         from core.memory import MemoryManager
         from core.meta_client import meta_client as default_meta_client
         from core.sentiment import SentimentAnalyzer
@@ -20,9 +19,10 @@ class ServiceContainer:
         from db.database import db, get_db
 
         self.meta_client = default_meta_client
-        self.sentiment = SentimentAnalyzer()
-        self.inference = InferenceEngine(db=db)
-        self.memory = MemoryManager(db=db)
+        self.llm = LLMClient(max_retries=3, retry_delays=[1.0, 2.0, 4.0], timeout=30.0)
+        self.sentiment = SentimentAnalyzer(llm=self.llm)
+        self.inference = InferenceEngine(db=db, llm=self.llm)
+        self.memory = MemoryManager(db=db, llm=self.llm)
         self.sessions = SessionManager(db=db, memory_manager=self.memory)
         self.turn_builder = TurnBuilder(meta_client=self.meta_client)
         self.hitl_router = HITLRouter(
@@ -50,7 +50,6 @@ class ServiceContainer:
         _sess.session_manager = self.sessions
         _tb.turn_builder = self.turn_builder
         _hr.hitl_router = self.hitl_router
-        _hr.process_inbound_message = self.hitl_router.process_inbound_message
 
         logger.info("service_container_wired")
 

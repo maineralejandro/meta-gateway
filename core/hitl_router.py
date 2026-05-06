@@ -398,7 +398,9 @@ class HITLRouter:
 
 hitl_router = HITLRouter()
 
-process_inbound_message = hitl_router.process_inbound_message
+
+async def process_inbound_message(phone: str, text: str, correlation_id: str | None = None) -> None:
+    return await hitl_router.process_inbound_message(phone, text, correlation_id)
 
 async def _safe_summarize(phone: str, memory: Any) -> None:
     try:
