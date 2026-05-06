@@ -7,7 +7,7 @@ Hermes is a WhatsApp Human-in-the-Loop gateway for a Chilean Food Truck. It rece
 ## Tech Stack
 
 ### Backend (Python 3.12+)
-- **FastAPI 0.104.1** — async API framework with lifespan events
+- **FastAPI 0.115.0+** — async API framework with lifespan events
 - **aiosqlite 0.22.1** — async SQLite wrapper (single shared connection)
 - **openai >=1.0.0** — OpenAI-compatible client for NVIDIA NIM
 - **httpx 0.28.1** — async HTTP client for Meta API calls
