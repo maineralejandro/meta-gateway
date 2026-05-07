@@ -44,6 +44,37 @@ class MetaAPIClient:
     async def send_message(self, phone: str, text: str) -> dict[str, Any]:
         return await self.send_text(phone, text)
 
+    async def mark_read(self, message_id: str) -> dict[str, Any]:
+        client = await self._get_client()
+        payload = {
+            "messaging_product": "whatsapp",
+            "status": "read",
+            "message_id": message_id,
+        }
+        resp = await client.post(f"{self.base_url}/messages", json=payload)
+        if resp.status_code >= 400:
+            error_body = resp.text
+            logger.error("meta_mark_read_error", status=resp.status_code, body=error_body)
+            return {"error": True, "status": resp.status_code, "detail": error_body}
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def mark_read_with_typing(self, message_id: str) -> dict[str, Any]:
+        client = await self._get_client()
+        payload = {
+            "messaging_product": "whatsapp",
+            "status": "read",
+            "message_id": message_id,
+            "typing_indicator": {"type": "text"},
+        }
+        resp = await client.post(f"{self.base_url}/messages", json=payload)
+        if resp.status_code >= 400:
+            error_body = resp.text
+            logger.error("meta_mark_read_typing_error", status=resp.status_code, body=error_body)
+            return {"error": True, "status": resp.status_code, "detail": error_body}
+        result: dict[str, Any] = resp.json()
+        return result
+
     async def health_check(self) -> dict[str, Any]:
         try:
             if not settings.WHATSAPP_ACCESS_TOKEN:

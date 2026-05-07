@@ -125,3 +125,62 @@ async def test_close_already_closed(client):
 
     await client.close()
     mock_httpx.aclose.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_mark_read_success(client):
+    mock_httpx = AsyncMock()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"success": True}
+    mock_httpx.post.return_value = mock_resp
+
+    with patch.object(client, "_get_client", return_value=mock_httpx):
+        result = await client.mark_read("wamid.HBgLMTY1")
+
+    mock_httpx.post.assert_called_once()
+    call_args = mock_httpx.post.call_args
+    assert call_args[0][0].endswith("/messages")
+    payload = call_args[1]["json"]
+    assert payload["messaging_product"] == "whatsapp"
+    assert payload["status"] == "read"
+    assert payload["message_id"] == "wamid.HBgLMTY1"
+    assert "typing_indicator" not in payload
+    assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_mark_read_with_typing_success(client):
+    mock_httpx = AsyncMock()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"success": True}
+    mock_httpx.post.return_value = mock_resp
+
+    with patch.object(client, "_get_client", return_value=mock_httpx):
+        result = await client.mark_read_with_typing("wamid.HBgLMTY1")
+
+    mock_httpx.post.assert_called_once()
+    call_args = mock_httpx.post.call_args
+    assert call_args[0][0].endswith("/messages")
+    payload = call_args[1]["json"]
+    assert payload["messaging_product"] == "whatsapp"
+    assert payload["status"] == "read"
+    assert payload["message_id"] == "wamid.HBgLMTY1"
+    assert payload["typing_indicator"] == {"type": "text"}
+    assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_mark_read_http_error(client):
+    mock_httpx = AsyncMock()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 401
+    mock_resp.text = "Unauthorized"
+    mock_httpx.post.return_value = mock_resp
+
+    with patch.object(client, "_get_client", return_value=mock_httpx):
+        result = await client.mark_read("wamid.HBgLMTY1")
+
+    assert result["error"] is True
+    assert result["status"] == 401

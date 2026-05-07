@@ -9,6 +9,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from core.config import settings
 from core.events import emit
+from core.meta_client import meta_client
 from core.metrics import RATE_LIMITS, WEBHOOK_DUPLICATES
 from core.security import rate_limiter, verify_meta_signature
 from core.sessions import session_manager
@@ -51,6 +52,16 @@ async def _handle_message(msg: dict[str, Any], value: dict[str, Any], correlatio
 
     msg_type = msg.get("type", "text")
     meta_msg_id = msg.get("id", "")
+
+    try:
+        await meta_client.mark_read(meta_msg_id)
+    except Exception:
+        logger.debug("mark_read_failed", meta_msg_id=meta_msg_id)
+
+    try:
+        await meta_client.mark_read_with_typing(meta_msg_id)
+    except Exception:
+        logger.debug("mark_read_typing_failed", meta_msg_id=meta_msg_id)
 
     text = ""
     media_type = None

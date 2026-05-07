@@ -20,16 +20,19 @@ def client():
 @pytest.fixture(autouse=True)
 def mock_deps():
     with patch("routers.webhook.verify_meta_signature", new_callable=AsyncMock, return_value=True), \
-        patch("routers.webhook.rate_limiter") as mock_rl, \
-        patch("routers.webhook.session_manager") as mock_sm, \
-        patch("routers.webhook.turn_builder") as mock_tb, \
-        patch("routers.webhook.get_db") as mock_get_db, \
-        patch("routers.webhook.emit", new_callable=AsyncMock), \
-        patch("routers.webhook.WEBHOOK_DUPLICATES", MagicMock()), \
-        patch("routers.webhook.RATE_LIMITS", MagicMock()):
+         patch("routers.webhook.rate_limiter") as mock_rl, \
+         patch("routers.webhook.session_manager") as mock_sm, \
+         patch("routers.webhook.turn_builder") as mock_tb, \
+         patch("routers.webhook.get_db") as mock_get_db, \
+         patch("routers.webhook.emit", new_callable=AsyncMock), \
+         patch("routers.webhook.WEBHOOK_DUPLICATES", MagicMock()), \
+         patch("routers.webhook.RATE_LIMITS", MagicMock()), \
+         patch("routers.webhook.meta_client") as mock_mc:
         mock_rl.is_allowed.return_value = True
         mock_sm.get_or_create_session = AsyncMock(return_value=1)
         mock_tb.debounce = AsyncMock()
+        mock_mc.mark_read = AsyncMock(return_value={"success": True})
+        mock_mc.mark_read_with_typing = AsyncMock(return_value={"success": True})
 
         mock_db = MagicMock()
         mock_db.fetchone = AsyncMock(return_value=("BOT_ACTIVE", False))
@@ -44,6 +47,7 @@ def mock_deps():
             "turn_builder": mock_tb,
             "session_manager": mock_sm,
             "rate_limiter": mock_rl,
+            "meta_client": mock_mc,
         }
 
 
@@ -305,4 +309,50 @@ def test_receive_webhook_requires_human_review(client, mock_deps):
 def test_receive_webhook_invalid_signature(client):
     with patch("routers.webhook.verify_meta_signature", new_callable=AsyncMock, return_value=False):
         response = client.post("/webhook/whatsapp", json={"entry": []})
-    assert response.status_code == 403
+        assert response.status_code == 403
+
+
+def test_receive_webhook_marks_read_with_typing(client, mock_deps):
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "56912345678",
+                        "id": "wamid_read_test",
+                        "type": "text",
+                        "text": {"body": "Hola"},
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    mock_deps["meta_client"].mark_read.assert_called_once_with("wamid_read_test")
+    mock_deps["meta_client"].mark_read_with_typing.assert_called_once_with("wamid_read_test")
+
+
+def test_receive_webhook_mark_read_failure_doesnt_block(client, mock_deps):
+    mock_deps["meta_client"].mark_read = AsyncMock(side_effect=Exception("API error"))
+    mock_deps["meta_client"].mark_read_with_typing = AsyncMock(side_effect=Exception("API error"))
+
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "56912345678",
+                        "id": "wamid_fail_test",
+                        "type": "text",
+                        "text": {"body": "Hola"},
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "processing"

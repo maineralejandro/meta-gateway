@@ -10,7 +10,7 @@ from core.events import emit
 
 logger = structlog.get_logger()
 
-DEBOUNCE_SECONDS = 2.0
+DEBOUNCE_SECONDS = 5.0
 
 
 @dataclass
