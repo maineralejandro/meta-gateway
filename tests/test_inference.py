@@ -358,7 +358,7 @@ def test_normalize_roles_merges_consecutive_same():
     assert result[2]["role"] == "assistant"
 
 
-def test_normalize_roles_fixes_assistant_first():
+def test_normalize_roles_does_not_insert_fake_user():
     messages = [
         {"role": "system", "content": "prompt"},
         {"role": "assistant", "content": "Hello!"},
@@ -366,9 +366,8 @@ def test_normalize_roles_fixes_assistant_first():
     ]
     result = _normalize_roles(messages)
     non_system = [m for m in result if m["role"] != "system"]
-    assert non_system[0]["role"] == "user"
-    assert non_system[1]["role"] == "assistant"
-    assert non_system[2]["role"] == "user"
+    assert non_system[0]["role"] == "assistant"
+    assert non_system[1]["role"] == "user"
 
 
 def test_normalize_roles_no_fix_needed():
@@ -383,17 +382,15 @@ def test_normalize_roles_no_fix_needed():
     assert result[2]["role"] == "assistant"
 
 
-def test_normalize_roles_assistant_only_after_system():
+def test_normalize_roles_assistant_after_system_unchanged():
     messages = [
         {"role": "system", "content": "prompt"},
         {"role": "assistant", "content": "Welcome!"},
     ]
     result = _normalize_roles(messages)
     non_system = [m for m in result if m["role"] != "system"]
-    assert len(non_system) == 2
-    assert non_system[0]["role"] == "user"
-    assert non_system[0]["content"] == "[mensaje anterior]"
-    assert non_system[1]["role"] == "assistant"
+    assert len(non_system) == 1
+    assert non_system[0]["role"] == "assistant"
 
 
 def test_normalize_roles_relocates_intercalated_system():

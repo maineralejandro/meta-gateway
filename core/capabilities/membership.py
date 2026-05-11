@@ -34,6 +34,76 @@ class MembershipCapability(BaseCapability):
         "MEMBERSHIP_CANCEL": MEMBERSHIP_CANCEL_RE,
         "MEMBERSHIP_TRIAL": MEMBERSHIP_TRIAL_RE,
     }
+    PARALLEL_SAFE_TOOLS: ClassVar[set[str]] = {"membership_check", "membership_get_plans"}
+    SEQUENTIAL_TOOLS: ClassVar[set[str]] = {"membership_activate", "membership_cancel", "membership_trial"}
+
+    _TOOL_DEFINITIONS: ClassVar[list[dict[str, Any]]] = [
+        {
+            "type": "function",
+            "function": {
+                "name": "membership_activate",
+                "description": (
+                    "Llama esta funcion UNICAMENTE cuando el cliente haya confirmado "
+                    "explicitamente que quiere activar un plan de membresia. "
+                    "NO la llames si el cliente solo pregunta por planes o precios. "
+                    "Ejemplos de cuando llamarla: 'quiero el plan premium', 'activame el anual'. "
+                    "Ejemplos de cuando NO llamarla: 'que planes tienen?', 'cuanto cuesta el premium?'"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "plan_key": {"type": "string", "description": "Clave del plan (ej: basico, premium, anual)"},
+                    },
+                    "required": ["plan_key"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "membership_cancel",
+                "description": (
+                    "Llama esta funcion cuando el cliente quiera cancelar su membresia activa. "
+                    "Es una accion destructiva — asegurate de que el cliente confirmo la cancelacion."
+                ),
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "membership_trial",
+                "description": (
+                    "Llama esta funcion cuando el cliente quiera activar un trial gratuito. "
+                    "Solo disponible si la config lo permite. "
+                    "El cliente debe confirmar explicitamente que quiere el trial."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "plan_key": {"type": "string", "description": "Clave del plan para el trial"},
+                    },
+                    "required": ["plan_key"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "membership_check",
+                "description": "Consultar el estado de la membresia del cliente. Retorna estado actual o indica que no tiene membresia.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "membership_get_plans",
+                "description": "Listar los planes de membresia disponibles con precios y caracteristicas.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    ]
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
@@ -166,6 +236,127 @@ class MembershipCapability(BaseCapability):
 
     def get_plans(self) -> list[dict[str, Any]]:
         return list(self._plans)
+
+    def _membership_state_dict(self, phone: str) -> dict[str, Any]:
+        m = self._memberships.get(phone)
+        if not m or m["status"] not in ("active", "trial"):
+            return {"status": "none", "plan": None, "started_at": None, "next_billing": None}
+        return {
+            "status": m["status"],
+            "plan_key": m["plan_key"],
+            "plan_name": self._plan_name(m["plan_key"]),
+            "price": self._plan_price(m["plan_key"]),
+            "started_at": m["started_at"],
+            "next_billing": m["next_billing"],
+        }
+
+    def get_tool_definitions(self, config: dict[str, Any]) -> list[dict[str, Any]]:
+        return list(self._TOOL_DEFINITIONS)
+
+    def get_tool_names(self) -> set[str]:
+        return {"membership_activate", "membership_cancel", "membership_trial", "membership_check", "membership_get_plans"}
+
+    async def execute_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        phone: str,
+        tool_call_id: str,
+        config: dict[str, Any],
+    ) -> dict[str, Any]:
+        if name == "membership_activate":
+            return await self._execute_activate(args, phone)
+        if name == "membership_cancel":
+            return await self._execute_cancel(phone)
+        if name == "membership_trial":
+            return await self._execute_trial(args, phone)
+        if name == "membership_check":
+            return await self._execute_check(phone)
+        if name == "membership_get_plans":
+            return self._execute_get_plans()
+        return {"success": False, "error": f"Unknown tool: {name}"}
+
+    async def _execute_activate(self, args: dict[str, Any], phone: str) -> dict[str, Any]:
+        plan_key = args.get("plan_key", "")
+        valid_keys = [p["key"] for p in self._plans]
+        if plan_key not in valid_keys:
+            return {
+                "success": False,
+                "error": f"plan_key '{plan_key}' not found",
+                "valid_plan_keys": valid_keys,
+                "instruction": "Usa una de las claves de plan validas.",
+            }
+        await self.activate_plan(phone, plan_key)
+        return {
+            "success": True,
+            "action": "membership_activated",
+            "membership_state": self._membership_state_dict(phone),
+        }
+
+    async def _execute_cancel(self, phone: str) -> dict[str, Any]:
+        await self._ensure_loaded(phone)
+        m = self._memberships.get(phone)
+        if not m or m["status"] not in ("active", "trial"):
+            return {"success": False, "error": "No active membership to cancel", "membership_state": self._membership_state_dict(phone)}
+        await self.cancel_membership(phone)
+        return {
+            "success": True,
+            "action": "membership_cancelled",
+            "membership_state": self._membership_state_dict(phone),
+        }
+
+    async def _execute_trial(self, args: dict[str, Any], phone: str) -> dict[str, Any]:
+        if not self._allow_free_trial():
+            return {
+                "success": False,
+                "error": "Free trial is not allowed for this agent",
+                "instruction": "Informa al cliente que no hay trial disponible.",
+            }
+        plan_key = args.get("plan_key", "")
+        valid_keys = [p["key"] for p in self._plans]
+        if plan_key not in valid_keys:
+            return {
+                "success": False,
+                "error": f"plan_key '{plan_key}' not found",
+                "valid_plan_keys": valid_keys,
+                "instruction": "Usa una de las claves de plan validas.",
+            }
+        await self._ensure_loaded(phone)
+        existing = self._memberships.get(phone)
+        if existing and existing["status"] in ("active", "trial"):
+            return {
+                "success": False,
+                "error": f"Client already has an {existing['status']} membership",
+                "membership_state": self._membership_state_dict(phone),
+            }
+        await self.activate_trial(phone, plan_key)
+        return {
+            "success": True,
+            "action": "trial_activated",
+            "trial_days": self._trial_days(),
+            "membership_state": self._membership_state_dict(phone),
+        }
+
+    async def _execute_check(self, phone: str) -> dict[str, Any]:
+        await self._ensure_loaded(phone)
+        return {
+            "success": True,
+            "action": "membership_checked",
+            "membership_state": self._membership_state_dict(phone),
+        }
+
+    def _execute_get_plans(self) -> dict[str, Any]:
+        plans = [
+            {
+                "key": p["key"],
+                "name": p["name"],
+                "price": p["price"],
+                "billing_cycle": p["billing_cycle"],
+                "features": p.get("features", []),
+            }
+            for p in self._plans
+        ]
+        return {"success": True, "action": "get_plans", "plans": plans, "free_trial_available": self._allow_free_trial(), "trial_days": self._trial_days() if self._allow_free_trial() else 0}
 
     async def format_for_context(self, phone: str, config: dict[str, Any]) -> str | None:
         await self._ensure_loaded(phone)

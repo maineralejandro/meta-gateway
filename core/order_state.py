@@ -1,13 +1,13 @@
-from typing import Any
+from typing import Any, ClassVar
 
 from core.capabilities.base import BaseCapability
-from core.capabilities.order import (
-    OrderCapability,
-)
+from core.capabilities.order import OrderCapability
 
 
 class _CompatAdapter(BaseCapability):
     name = "order"
+    PARALLEL_SAFE_TOOLS: ClassVar[set[str]] = {"order_get_menu", "order_search_item", "order_get_categories"}
+    SEQUENTIAL_TOOLS: ClassVar[set[str]] = {"order_add", "order_remove", "order_clear"}
 
     def __init__(self) -> None:
         object.__setattr__(self, "_impl", OrderCapability())
@@ -25,6 +25,13 @@ class _CompatAdapter(BaseCapability):
         if name.startswith("_") and hasattr(self, "_impl"):
             return getattr(self._impl, name)
         raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    @property
+    def needs_search(self) -> bool:
+        return self._impl.needs_search
+
+    async def on_resolve(self) -> None:
+        return await self._impl.on_resolve()
 
     async def format_for_context(self, phone: str, config: dict[str, Any] | None = None) -> str | None:
         return await self._impl.format_for_context(phone, config or {})
@@ -52,6 +59,22 @@ class _CompatAdapter(BaseCapability):
 
     def get_menu(self) -> dict[str, dict[str, Any]]:
         return self._impl.get_menu()
+
+    def get_tool_definitions(self, config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        return self._impl.get_tool_definitions(config or {})
+
+    def get_tool_names(self) -> set[str]:
+        return self._impl.get_tool_names()
+
+    async def execute_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        phone: str,
+        tool_call_id: str,
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return await self._impl.execute_tool(name, args, phone, tool_call_id, config or {})
 
 
 class OrderState(_CompatAdapter):

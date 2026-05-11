@@ -11,13 +11,13 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.background import start_cleanup_task, stop_cleanup_task
-from core.container import container
 from core.capabilities.appointment import AppointmentCapability
 from core.capabilities.base import registry
 from core.capabilities.lead import LeadCapability
 from core.capabilities.membership import MembershipCapability
 from core.capabilities.order import OrderCapability
 from core.config import settings
+from core.container import container
 from core.events import setup_default_subscribers
 from core.logging_config import setup_logging
 from core.meta_client import meta_client
@@ -80,6 +80,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     container.build()
     container.wire_singletons()
     setup_default_subscribers()
+    from core.order_state import order_state
+    await order_state.reload_menu_from_db()
+    logger.info("menu_loaded_at_startup", item_count=len(order_state._menu), needs_search=order_state.needs_search)
     APP_INFO.info({"version": "2.0.0", "llm_model": settings.LLM_MODEL or "unknown"})
     start_cleanup_task()
     logger.info("db_initialized", path=settings.DB_PATH)

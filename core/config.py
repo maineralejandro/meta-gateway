@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "*"
     SKIP_STARTUP_VALIDATION: bool = False
 
+    TOOL_MAX_ITERATIONS: int = 5
+    TOOL_EXECUTION_TTL: int = 300
+    MARK_READ_DELAY_MS: int = 200
+
     model_config = SettingsConfigDict(
         env_file=str(Path(__file__).resolve().parents[1] / ".env"),
         env_file_encoding="utf-8",

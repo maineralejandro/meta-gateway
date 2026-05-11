@@ -60,7 +60,7 @@ def test_idempotent(temp_db):
 
     # Debe haber 16 migraciones registradas (001-016)
     # 000_baseline no se registra a si misma
-    assert count == 16
+    assert count == 17
     conn.close()
 
 def test_legacy_upgrade(temp_db):

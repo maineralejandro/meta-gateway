@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any
 
 import structlog
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, RateLimitError
@@ -47,22 +48,28 @@ class LLMClient:
 
     async def chat_completion(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         max_tokens: int = 500,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str = "auto",
         log_label: str = "llm_retry",
     ) -> ChatCompletion:
         client = self.get_client()
         if client is None:
             raise RuntimeError("LLM client not available")
+        kwargs: dict[str, Any] = {
+            "model": settings.LLM_MODEL,
+            "max_tokens": max_tokens,
+            "messages": messages,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = tool_choice
         last_err: Exception | None = None
         for attempt in range(self._max_retries):
             try:
-                return await client.chat.completions.create(
-                    model=settings.LLM_MODEL,
-                    max_tokens=max_tokens,
-                    messages=messages,  # type: ignore[arg-type]
-                )
+                return await client.chat.completions.create(**kwargs)
             except (RateLimitError, APIConnectionError, APITimeoutError) as e:
                 last_err = e
                 logger.warning(

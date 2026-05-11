@@ -79,8 +79,17 @@ class TurnBuilder:
         if phone in self._timers:
             self._timers[phone].cancel()
 
-        self._timers[phone] = asyncio.create_task(
+        task = asyncio.create_task(
             self._fire_after_silence(phone, self.debounce_seconds)
+        )
+        self._timers[phone] = task
+
+        logger.info(
+            "turn_builder_scheduled",
+            phone=phone,
+            buffer_size=len(self._buffers[phone]),
+            message_id=message_id,
+            task_id=id(task),
         )
 
         logger.debug(
@@ -91,10 +100,13 @@ class TurnBuilder:
         )
 
     async def _fire_after_silence(self, phone: str, delay: float) -> None:
+        logger.info("turn_builder_timer_start", phone=phone, delay=delay)
         try:
             await asyncio.sleep(delay)
         except asyncio.CancelledError:
+            logger.info("turn_builder_timer_cancelled", phone=phone)
             return
+        logger.info("turn_builder_timer_fired", phone=phone)
 
         messages = self._buffers.pop(phone, [])
         self._timers.pop(phone, None)

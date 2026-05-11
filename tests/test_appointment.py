@@ -161,3 +161,61 @@ async def test_multiple_phones_independent(appt):
     assert len(appts2) == 1
     assert appts1[0]["service_key"] == "limpieza"
     assert appts2[0]["service_key"] == "control"
+
+
+def test_get_tool_definitions():
+    inst = AppointmentCapability()
+    defs = inst.get_tool_definitions({})
+    assert len(defs) == 3
+    names = [d["function"]["name"] for d in defs]
+    assert "appointment_add" in names
+    assert "appointment_cancel" in names
+    assert "appointment_get_available" in names
+
+
+def test_get_tool_names():
+    inst = AppointmentCapability()
+    names = inst.get_tool_names()
+    assert names == {"appointment_add", "appointment_cancel", "appointment_get_available"}
+
+
+@pytest.mark.asyncio
+async def test_execute_add(appt):
+    result = await appt.execute_tool("appointment_add", {"date": "2025-05-05", "time": "14:00", "service_key": "limpieza"}, "+56910000001", "tc1", {})
+    assert result["success"] is True
+    assert result["action"] == "appointment_added"
+
+
+@pytest.mark.asyncio
+async def test_execute_add_duplicate_slot(appt):
+    await appt.add_appointment("+56910000001", "2025-05-05", "14:00", "limpieza")
+    result = await appt.execute_tool("appointment_add", {"date": "2025-05-05", "time": "14:00", "service_key": "control"}, "+56910000001", "tc2", {})
+    assert result["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_execute_cancel(appt):
+    await appt.add_appointment("+56910000001", "2025-05-05", "14:00", "limpieza")
+    result = await appt.execute_tool("appointment_cancel", {"date": "2025-05-05", "time": "14:00"}, "+56910000001", "tc3", {})
+    assert result["success"] is True
+    assert result["action"] == "appointment_cancelled"
+
+
+@pytest.mark.asyncio
+async def test_execute_get_available(appt):
+    result = await appt.execute_tool("appointment_get_available", {"date": "2025-05-05"}, "+56910000001", "tc4", {})
+    assert result["success"] is True
+    assert "available_slots" in result
+
+
+@pytest.mark.asyncio
+async def test_execute_unknown_tool(appt):
+    result = await appt.execute_tool("unknown_tool", {}, "+56910000001", "tc5", {})
+    assert result["success"] is False
+    assert "Unknown tool" in result["error"]
+
+
+def test_parallel_safe_and_sequential_tools():
+    inst = AppointmentCapability()
+    assert {"appointment_get_available"} == inst.PARALLEL_SAFE_TOOLS
+    assert {"appointment_add", "appointment_cancel"} == inst.SEQUENTIAL_TOOLS

@@ -65,6 +65,24 @@ LLM_FALLBACK = Counter(
     ["reason"],
 )
 
+LEAKED_TOOL_CALLS = Counter(
+    "hermes_leaked_tool_calls_total",
+    "Tool calls leakeadas como texto plano por el LLM",
+    ["agent_id", "iteration", "capability"],
+)
+
+SYNTHETIC_TOOL_CALLS = Counter(
+    "hermes_synthetic_tool_calls_total",
+    "Tool calls ejecutadas desde JSON parseado (fallback Capa 2)",
+    ["agent_id", "tool_name"],
+)
+
+LEAKED_TO_USER = Counter(
+    "hermes_leaked_to_user_total",
+    "Veces que JSON leaked llego al output final antes de sanitize",
+    ["agent_id"],
+)
+
 ACTIVE_CONVERSATIONS = Gauge(
     "hermes_active_conversations",
     "Number of conversations in non-BOT_ACTIVE states",

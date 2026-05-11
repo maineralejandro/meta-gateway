@@ -14,6 +14,8 @@ class BaseCapability(ABC):
     description: str = ""
     tag_patterns: ClassVar[dict[str, re.Pattern[str]]] = {}
     config_schema: ClassVar[list[dict[str, Any]]] = []
+    PARALLEL_SAFE_TOOLS: ClassVar[set[str]] = set()
+    SEQUENTIAL_TOOLS: ClassVar[set[str]] = set()
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         self.config: dict[str, Any] = config or {}
@@ -33,6 +35,29 @@ class BaseCapability(ABC):
     @abstractmethod
     def get_prompt_instructions(self, config: dict[str, Any]) -> str:
         """Return system prompt instructions for this capability's tags."""
+
+    def get_tool_definitions(self, config: dict[str, Any]) -> list[dict[str, Any]]:
+        """Return OpenAI tool schemas for this capability. Default: empty list."""
+        return []
+
+    def get_tool_names(self) -> set[str]:
+        """Return set of tool names this capability handles. Default: empty set."""
+        return set()
+
+    async def execute_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        phone: str,
+        tool_call_id: str,
+        config: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Execute a tool by name and return serializable result. Default: error."""
+        return {"success": False, "error": f"Tool '{name}' not implemented"}
+
+    async def on_resolve(self) -> None:
+        """Hook called after resolve() creates an instance. Override to load async data."""
+        return None
 
 
 class CapabilityRegistry:
@@ -90,7 +115,9 @@ class CapabilityRegistry:
                         config = json.loads(cap.config_json) if cap.config_json else {}
                     except (json.JSONDecodeError, TypeError):
                         config = {}
-                    instances.append(cls(config=config))
+                    inst = cls(config=config)
+                    await inst.on_resolve()
+                    instances.append(inst)
                 else:
                     logger.warning(
                         "capability_not_registered",

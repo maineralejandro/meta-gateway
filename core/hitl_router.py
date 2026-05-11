@@ -83,7 +83,7 @@ class HITLRouter:
         return meta_client
 
     async def should_escalate(
-        self, sentiment_result: dict[str, Any], text: str, llm_escalate: bool
+        self, sentiment_result: dict[str, Any], text: str, llm_escalate: bool, trace: dict[str, Any] | None = None
     ) -> tuple[bool, str]:
         sentiment = sentiment_result.get("sentiment", "neutral")
         score = sentiment_result.get("score", 0.5)
@@ -92,16 +92,25 @@ class HITLRouter:
         if llm_escalate:
             return True, "llm_requested_escalation"
 
-        if sentiment == "negative" and score < SENTIMENT_THRESHOLD:
-            return True, f"negative_sentiment(score={score:.2f})"
-
-        if not llm_escalate and confidence < 0.4:
-            return True, f"very_low_confidence({confidence:.2f})"
-
         t = text.lower()
         for kw in ESCALATION_KEYWORDS:
             if kw in t:
                 return True, f"escalation_keyword({kw})"
+
+        if sentiment == "negative" and score < SENTIMENT_THRESHOLD:
+            return True, f"negative_sentiment(score={score:.2f})"
+
+        tools_executed_raw = trace.get("tools_executed") if trace else None
+        tools_ok = False
+        if tools_executed_raw:
+            try:
+                tools_list = json.loads(tools_executed_raw) if isinstance(tools_executed_raw, str) else tools_executed_raw
+                tools_ok = any(t.get("result", {}).get("success") for t in tools_list)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        if not llm_escalate and confidence < 0.4 and not tools_ok:
+            return True, f"very_low_confidence({confidence:.2f})"
 
         return False, ""
 
@@ -290,9 +299,11 @@ class HITLRouter:
             phone, sentiment_result["score"], sentiment_result["confidence"]
         )
 
-        for cap in capabilities:
-            response_text = await cap.parse_tags(phone, response_text, cap.config)
-        response_text = sanitize_llm_output(response_text)
+        used_tool_calling = trace.get("tools_executed") is not None
+        if not used_tool_calling:
+            for cap in capabilities:
+                response_text = await cap.parse_tags(phone, response_text, cap.config)
+            response_text = sanitize_llm_output(response_text)
         client = self._get_meta_client()
         await client.send_text(phone, response_text)
         MESSAGES_SENT.labels(source="bot").inc()
@@ -367,8 +378,10 @@ class HITLRouter:
             )
 
             should_escalate, reason = await self.should_escalate(
-                sentiment_result, consolidated_text, llm_escalate
+                sentiment_result, consolidated_text, llm_escalate, trace
             )
+            if llm_escalate and trace.get("escalation_reason"):
+                reason = trace["escalation_reason"]
 
             decision_data = self._build_decision_data(
                 sentiment_result, llm_escalate, should_escalate, reason, len(history),

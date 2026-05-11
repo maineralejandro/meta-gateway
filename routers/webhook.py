@@ -1,3 +1,4 @@
+import asyncio
 import json
 import uuid
 from typing import Any
@@ -52,6 +53,9 @@ async def _handle_message(msg: dict[str, Any], value: dict[str, Any], correlatio
 
     msg_type = msg.get("type", "text")
     meta_msg_id = msg.get("id", "")
+
+    if settings.MARK_READ_DELAY_MS > 0:
+        await asyncio.sleep(settings.MARK_READ_DELAY_MS / 1000.0)
 
     try:
         await meta_client.mark_read(meta_msg_id)

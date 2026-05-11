@@ -389,7 +389,8 @@ async def test_order_state_format_for_context():
     state._persist = AsyncMock()
     state._ensure_loaded = AsyncMock()
     result = await state.format_for_context("+569")
-    assert result is None
+    assert result is not None
+    assert "Menu disponible" in result
 
     await state.add_item("+569", "completo_vienesa_gigante", 3)
     await state.add_item("+569", "papas_mediana", 2)

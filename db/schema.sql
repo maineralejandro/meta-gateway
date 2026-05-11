@@ -116,6 +116,11 @@ CREATE TABLE IF NOT EXISTS menu_items (
     category TEXT NOT NULL DEFAULT 'general',
     is_available INTEGER NOT NULL DEFAULT 1,
     sort_order INTEGER NOT NULL DEFAULT 0,
+    description TEXT NOT NULL DEFAULT '',
+    tags TEXT NOT NULL DEFAULT '[]',
+    size TEXT NOT NULL DEFAULT '',
+    protein TEXT NOT NULL DEFAULT '',
+    conditions TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

@@ -35,21 +35,31 @@ class OrderRepository(BaseRepository):
 class MenuRepository(BaseRepository):
     async def load_items(self) -> list[dict[str, Any]]:
         rows = await self._fetchall(
-            "SELECT key, name, price, category, is_available, sort_order FROM menu_items ORDER BY sort_order"
+            "SELECT key, name, price, category, is_available, sort_order, "
+            "description, tags, size, protein, conditions "
+            "FROM menu_items ORDER BY sort_order"
         )
         return [dict(row) for row in rows]
 
     async def upsert_item(
-        self, key: str, name: str, price: int, category: str = "general", is_available: bool = True, sort_order: int = 0
+        self, key: str, name: str, price: int, category: str = "general",
+        is_available: bool = True, sort_order: int = 0,
+        description: str = "", tags: str = "[]", size: str = "",
+        protein: str = "", conditions: str = "",
     ) -> None:
         conn = await self._get_conn()
         await conn.execute(
-            """INSERT INTO menu_items (key, name, price, category, is_available, sort_order, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """INSERT INTO menu_items (key, name, price, category, is_available, sort_order,
+               description, tags, size, protein, conditions, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(key) DO UPDATE SET
-            name=excluded.name, price=excluded.price, category=excluded.category,
-            is_available=excluded.is_available, sort_order=excluded.sort_order, updated_at=CURRENT_TIMESTAMP""",
-            (key, name, price, category, int(is_available), sort_order),
+                name=excluded.name, price=excluded.price, category=excluded.category,
+                is_available=excluded.is_available, sort_order=excluded.sort_order,
+                description=excluded.description, tags=excluded.tags, size=excluded.size,
+                protein=excluded.protein, conditions=excluded.conditions,
+                updated_at=CURRENT_TIMESTAMP""",
+            (key, name, price, category, int(is_available), sort_order,
+             description, tags, size, protein, conditions),
         )
         await conn.commit()
 

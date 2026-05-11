@@ -50,6 +50,64 @@ class AppointmentCapability(BaseCapability):
         "APPOINTMENT_CANCEL": APPOINTMENT_CANCEL_RE,
         "APPOINTMENT_AVAILABLE": APPOINTMENT_AVAILABLE_RE,
     }
+    PARALLEL_SAFE_TOOLS: ClassVar[set[str]] = {"appointment_get_available"}
+    SEQUENTIAL_TOOLS: ClassVar[set[str]] = {"appointment_add", "appointment_cancel"}
+
+    _TOOL_DEFINITIONS: ClassVar[list[dict[str, Any]]] = [
+        {
+            "type": "function",
+            "function": {
+                "name": "appointment_add",
+                "description": (
+                    "Llama esta funcion UNICAMENTE cuando el cliente haya confirmado "
+                    "explicitamente la fecha, hora y servicio para agendar una cita. "
+                    "NO la llames si el cliente solo pregunta por disponibilidad. "
+                    "Siempre llama appointment_get_available primero para mostrar opciones."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "date": {"type": "string", "format": "date", "description": "Fecha YYYY-MM-DD"},
+                        "time": {"type": "string", "description": "Hora HH:MM"},
+                        "service_key": {"type": "string", "description": "Clave del servicio"},
+                    },
+                    "required": ["date", "time", "service_key"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "appointment_cancel",
+                "description": (
+                    "Llama esta funcion cuando el cliente quiera cancelar una cita ya agendada. "
+                    "Es una accion destructiva — asegurate de que el cliente confirmo la cancelacion."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "date": {"type": "string", "format": "date", "description": "Fecha YYYY-MM-DD"},
+                        "time": {"type": "string", "description": "Hora HH:MM"},
+                    },
+                    "required": ["date", "time"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "appointment_get_available",
+                "description": "Consultar horas disponibles para una fecha. Usar antes de agendar para mostrar opciones al cliente.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "date": {"type": "string", "format": "date", "description": "Fecha YYYY-MM-DD"},
+                    },
+                    "required": ["date"],
+                },
+            },
+        },
+    ]
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
@@ -178,6 +236,81 @@ class AppointmentCapability(BaseCapability):
     async def get_appointments(self, phone: str) -> list[dict[str, Any]]:
         await self._ensure_loaded(phone)
         return [a for a in self._appointments.get(phone, []) if a["status"] == "confirmed"]
+
+    def get_tool_definitions(self, config: dict[str, Any]) -> list[dict[str, Any]]:
+        return list(self._TOOL_DEFINITIONS)
+
+    def get_tool_names(self) -> set[str]:
+        return {"appointment_add", "appointment_cancel", "appointment_get_available"}
+
+    async def execute_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        phone: str,
+        tool_call_id: str,
+        config: dict[str, Any],
+    ) -> dict[str, Any]:
+        if name == "appointment_add":
+            return await self._execute_add(args, phone)
+        if name == "appointment_cancel":
+            return await self._execute_cancel(args, phone)
+        if name == "appointment_get_available":
+            return self._execute_get_available(args)
+        return {"success": False, "error": f"Unknown tool: {name}"}
+
+    async def _execute_add(self, args: dict[str, Any], phone: str) -> dict[str, Any]:
+        date = args.get("date", "")
+        time_ = args.get("time", "")
+        service_key = args.get("service_key", "")
+        services = self._get_services()
+        if services:
+            valid_keys = [s.get("key", "") for s in services]
+            if service_key not in valid_keys:
+                return {
+                    "success": False,
+                    "error": f"service_key '{service_key}' not found",
+                    "valid_service_keys": valid_keys,
+                    "instruction": "Usa una de las claves de servicio validas.",
+                }
+        await self._ensure_loaded(phone)
+        existing = self._appointments.get(phone, [])
+        for a in existing:
+            if a["date"] == date and a["time"] == time_ and a["status"] == "confirmed":
+                return {
+                    "success": False,
+                    "error": "Slot already taken",
+                    "date": date,
+                    "time": time_,
+                    "available_slots": self._get_available_slots_for_date(date),
+                    "instruction": "Elige otro horario de los disponibles.",
+                }
+        await self.add_appointment(phone, date, time_, service_key)
+        return {
+            "success": True,
+            "action": "appointment_added",
+            "appointment": {"date": date, "time": time_, "service_key": service_key, "status": "confirmed"},
+            "available_slots": self._get_available_slots_for_date(date),
+        }
+
+    async def _execute_cancel(self, args: dict[str, Any], phone: str) -> dict[str, Any]:
+        date = args.get("date", "")
+        time_ = args.get("time", "")
+        await self.cancel_appointment(phone, date, time_)
+        return {
+            "success": True,
+            "action": "appointment_cancelled",
+            "date": date,
+            "time": time_,
+            "available_slots": self._get_available_slots_for_date(date),
+        }
+
+    def _execute_get_available(self, args: dict[str, Any]) -> dict[str, Any]:
+        date = args.get("date", "")
+        slots = self._get_available_slots_for_date(date)
+        if not slots:
+            return {"success": True, "date": date, "available_slots": [], "message": "No hay horas disponibles para esta fecha."}
+        return {"success": True, "date": date, "available_slots": slots}
 
     async def format_for_context(self, phone: str, config: dict[str, Any]) -> str | None:
         await self._ensure_loaded(phone)

@@ -26,6 +26,56 @@ class LeadCapability(BaseCapability):
         "LEAD_UPDATE": LEAD_UPDATE_RE,
         "LEAD_STAGE": LEAD_STAGE_RE,
     }
+    PARALLEL_SAFE_TOOLS: ClassVar[set[str]] = {"lead_get"}
+    SEQUENTIAL_TOOLS: ClassVar[set[str]] = {"lead_update_field", "lead_advance_stage"}
+
+    _TOOL_DEFINITIONS: ClassVar[list[dict[str, Any]]] = [
+        {
+            "type": "function",
+            "function": {
+                "name": "lead_update_field",
+                "description": (
+                    "Llama esta funcion cuando el cliente proporcione informacion personal "
+                    "que debas guardar (nombre, email, presupuesto, zona, etc.). "
+                    "NO la llames si el cliente solo pregunta por el estado de su prospecto."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "field": {"type": "string", "description": "Nombre del campo (ej: nombre, email, presupuesto, zona)"},
+                        "value": {"type": "string", "description": "Valor del campo"},
+                    },
+                    "required": ["field", "value"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "lead_advance_stage",
+                "description": (
+                    "Llama esta funcion cuando el cliente avance explicitamente a la siguiente "
+                    "etapa del pipeline de ventas (ej: de interesado a calificado). "
+                    "NO la llames sin confirmacion del avance."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "stage": {"type": "string", "description": "Etapa destino (ej: interesado, calificado, visita, propuesta, cerrado)"},
+                    },
+                    "required": ["stage"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "lead_get",
+                "description": "Obtener la informacion actual del prospecto. Usar para ver que datos faltan antes de actualizar.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    ]
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
@@ -101,6 +151,76 @@ class LeadCapability(BaseCapability):
     async def get_lead(self, phone: str) -> dict[str, Any] | None:
         await self._ensure_loaded(phone)
         return self._leads.get(phone)
+
+    def _lead_state_dict(self, phone: str) -> dict[str, Any]:
+        lead = self._leads.get(phone)
+        if not lead:
+            return {"stage": None, "data": {}}
+        return {"stage": lead["stage"], "data": dict(lead.get("data", {}))}
+
+    def get_tool_definitions(self, config: dict[str, Any]) -> list[dict[str, Any]]:
+        return list(self._TOOL_DEFINITIONS)
+
+    def get_tool_names(self) -> set[str]:
+        return {"lead_update_field", "lead_advance_stage", "lead_get"}
+
+    async def execute_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        phone: str,
+        tool_call_id: str,
+        config: dict[str, Any],
+    ) -> dict[str, Any]:
+        if name == "lead_update_field":
+            return await self._execute_update_field(args, phone)
+        if name == "lead_advance_stage":
+            return await self._execute_advance_stage(args, phone)
+        if name == "lead_get":
+            return await self._execute_get(phone)
+        return {"success": False, "error": f"Unknown tool: {name}"}
+
+    async def _execute_update_field(self, args: dict[str, Any], phone: str) -> dict[str, Any]:
+        field = args.get("field", "")
+        value = args.get("value", "")
+        if not field:
+            return {"success": False, "error": "field is required", "instruction": "Proporciona el nombre del campo a actualizar."}
+        await self.update_field(phone, field, value)
+        return {
+            "success": True,
+            "action": "field_updated",
+            "field": field,
+            "value": value,
+            "lead_state": self._lead_state_dict(phone),
+        }
+
+    async def _execute_advance_stage(self, args: dict[str, Any], phone: str) -> dict[str, Any]:
+        stage = args.get("stage", "")
+        if not stage:
+            return {"success": False, "error": "stage is required", "instruction": "Proporciona la etapa destino."}
+        stages = self._get_stages()
+        if stage not in stages:
+            return {
+                "success": False,
+                "error": f"stage '{stage}' not found",
+                "valid_stages": stages,
+                "instruction": "Usa una de las etapas validas listadas arriba.",
+            }
+        await self.advance_stage(phone, stage)
+        return {
+            "success": True,
+            "action": "stage_advanced",
+            "stage": stage,
+            "lead_state": self._lead_state_dict(phone),
+        }
+
+    async def _execute_get(self, phone: str) -> dict[str, Any]:
+        await self._ensure_loaded(phone)
+        return {
+            "success": True,
+            "action": "lead_retrieved",
+            "lead_state": self._lead_state_dict(phone),
+        }
 
     async def format_for_context(self, phone: str, config: dict[str, Any]) -> str | None:
         await self._ensure_loaded(phone)

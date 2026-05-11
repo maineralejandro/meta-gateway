@@ -237,7 +237,9 @@ async def test_order_clear():
     )
     assert r.order["items"] == []
     assert r.order["total"] == 0
-    assert await order_state.format_for_context(phone) is None
+    result = await order_state.format_for_context(phone)
+    assert result is not None
+    assert "Menu disponible" in result
 
 
 @pytest.mark.asyncio
@@ -721,3 +723,65 @@ async def test_webhook_duplicate_message_ignored():
         result2 = await receive_webhook(request)
         assert result2["status"] == "duplicate"
         mock_tb.debounce.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_should_escalate_keyword_beats_tools_ok():
+    from core.hitl_router import HITLRouter
+
+    router = HITLRouter()
+    trace = {"tools_executed": json.dumps([{"tool": "order_clear", "result": {"success": True}}])}
+    escalate, reason = await router.should_escalate(
+        sentiment_result={"sentiment": "neutral", "score": 0.5, "confidence": 0.8},
+        text="estoy molesto",
+        llm_escalate=False,
+        trace=trace,
+    )
+    assert escalate is True
+    assert "escalation_keyword" in reason
+
+
+@pytest.mark.asyncio
+async def test_should_escalate_negative_sentiment_beats_tools_ok():
+    from core.hitl_router import HITLRouter
+
+    router = HITLRouter()
+    trace = {"tools_executed": json.dumps([{"tool": "order_add", "result": {"success": True}}])}
+    escalate, reason = await router.should_escalate(
+        sentiment_result={"sentiment": "negative", "score": 0.2, "confidence": 0.8},
+        text="producto malo",
+        llm_escalate=False,
+        trace=trace,
+    )
+    assert escalate is True
+    assert "negative_sentiment" in reason
+
+
+@pytest.mark.asyncio
+async def test_should_escalate_tools_ok_blocks_low_confidence():
+    from core.hitl_router import HITLRouter
+
+    router = HITLRouter()
+    trace = {"tools_executed": json.dumps([{"tool": "order_add", "result": {"success": True}}])}
+    escalate, _reason = await router.should_escalate(
+        sentiment_result={"sentiment": "neutral", "score": 0.5, "confidence": 0.3},
+        text="algo ambiguo",
+        llm_escalate=False,
+        trace=trace,
+    )
+    assert escalate is False
+
+
+@pytest.mark.asyncio
+async def test_should_escalate_low_confidence_without_tools():
+    from core.hitl_router import HITLRouter
+
+    router = HITLRouter()
+    escalate, reason = await router.should_escalate(
+        sentiment_result={"sentiment": "neutral", "score": 0.5, "confidence": 0.3},
+        text="algo ambiguo",
+        llm_escalate=False,
+        trace=None,
+    )
+    assert escalate is True
+    assert "very_low_confidence" in reason

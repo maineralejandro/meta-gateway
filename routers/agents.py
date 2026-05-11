@@ -76,11 +76,17 @@ async def activate_agent(agent_id: int, db: Database = Depends(get_db)) -> dict[
     return {"status": "success", "message": f"Agent {agent_id} activated"}
 
 @router.post("/{agent_id}/reload")
-async def reload_agent(agent_id: int) -> dict[str, str]:
-    # This specifically reloads the inference engine's cache
-    # If the engine is using a different agent_id, it might not affect it unless it's the active one
+async def reload_agent(agent_id: int) -> dict[str, Any]:
+    from core.order_state import order_state
+    await order_state.reload_menu_from_db()
+    registry.invalidate(agent_id)
     await inference_engine.reload()
-    return {"status": "success", "message": "Inference engine cache reloaded"}
+    return {
+        "status": "success",
+        "message": "Reloaded: menu from DB + capability cache + inference cache",
+        "menu_items": len(order_state._menu),
+        "needs_search": order_state.needs_search,
+    }
 
 
 class CapabilityUpsertItem(BaseModel):

@@ -209,9 +209,15 @@ class Database:
         return await self.menus.load_items()
 
     async def upsert_menu_item(
-        self, key: str, name: str, price: int, category: str = "general", is_available: bool = True, sort_order: int = 0
+        self, key: str, name: str, price: int, category: str = "general",
+        is_available: bool = True, sort_order: int = 0,
+        description: str = "", tags: str = "[]", size: str = "",
+        protein: str = "", conditions: str = "",
     ) -> None:
-        return await self.menus.upsert_item(key, name, price, category, is_available, sort_order)
+        return await self.menus.upsert_item(
+            key, name, price, category, is_available, sort_order,
+            description, tags, size, protein, conditions,
+        )
 
     async def update_conversation_state(self, phone: str, state: str, requires_human_review: bool = False) -> None:
         return await self.conversations.update_state(phone, state, requires_human_review)
