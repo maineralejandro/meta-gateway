@@ -153,6 +153,10 @@ def test_e2e_dual_output():
                     except json.JSONDecodeError as e:
                         raise AssertionError("Log file does not contain valid JSON") from e
 
+        for handler in root_logger.handlers:
+            handler.close()
+        root_logger.handlers.clear()
+
 
 def test_invalid_log_level_fallback():
     with patch.dict(os.environ, {"LOG_LEVEL": "INVALID"}):

@@ -120,7 +120,7 @@ def _build_tool_map(capabilities: list[BaseCapability]) -> dict[str, BaseCapabil
     return tool_map
 
 
-_TOOL_NAME_PREFIXES = ("order_", "appointment_", "membership_", "lead_", "escalate_to_")
+_TOOL_NAME_PREFIXES = ("cart_", "catalog_", "appointment_", "membership_", "lead_", "escalate_to_")
 
 _TOOL_DISCIPLINE_INSTRUCTION = (
     "\n\nDISCIPLINA DE HERRAMIENTAS (OBLIGATORIO):\n"
