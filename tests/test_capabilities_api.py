@@ -5,9 +5,9 @@ from fastapi.testclient import TestClient
 
 from core.capabilities.appointment import AppointmentCapability
 from core.capabilities.base import registry
+from core.capabilities.cart import CartCapability
 from core.capabilities.lead import LeadCapability
 from core.capabilities.membership import MembershipCapability
-from core.capabilities.order import OrderCapability
 from db.database import get_db
 from db.models import Agent, AgentCapability
 
@@ -28,8 +28,8 @@ def setup_registry():
         registry.register(LeadCapability)
     if not registry.get_class("membership"):
         registry.register(MembershipCapability)
-    if not registry.get_class("order"):
-        registry.register(OrderCapability)
+    if not registry.get_class("cart"):
+        registry.register(CartCapability)
 
 
 @pytest.fixture
@@ -58,7 +58,7 @@ def test_list_capabilities(client):
     assert "appointment" in names
     assert "lead" in names
     assert "membership" in names
-    assert "order" in names
+    assert "cart" in names
     for cap in data:
         assert "name" in cap
         assert "description" in cap

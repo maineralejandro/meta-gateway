@@ -34,16 +34,16 @@ def test_consecutive_assistant_merged():
 def test_consecutive_assistant_with_tool_calls_not_merged():
     messages = [
         {"role": "system", "content": "prompt"},
-        {"role": "user", "content": "quiero 2 completos"},
-        {"role": "assistant", "content": None, "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "order_add", "arguments": '{"item_key": "completo_normal", "qty": 2}'}}]},
-        {"role": "assistant", "content": "Agregue 2 completos a tu pedido."},
+        {"role": "user", "content": "quiero 2 items"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "cart_add", "arguments": '{"item_key": "item_a", "qty": 2}'}}]},
+        {"role": "assistant", "content": "Agregue 2 items a tu carrito."},
     ]
     result = _normalize_roles(messages)
     assert len(result) == 4
     assert result[2]["role"] == "assistant"
     assert "tool_calls" in result[2]
     assert result[3]["role"] == "assistant"
-    assert result[3]["content"] == "Agregue 2 completos a tu pedido."
+    assert result[3]["content"] == "Agregue 2 items a tu carrito."
 
 
 def test_consecutive_system_merged():

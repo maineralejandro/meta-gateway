@@ -9,8 +9,8 @@ from core.meta_client import MetaAPIClient
 def client():
     c = MetaAPIClient.__new__(MetaAPIClient)
     c.base_url = "https://graph.facebook.com/v18.0/123456"
-    c.headers = {"Authorization": "Bearer test-token", "Content-Type": "application/json"}
     c._client = None
+    c._cached_token = None
     return c
 
 
@@ -184,3 +184,93 @@ async def test_mark_read_http_error(client):
 
     assert result["error"] is True
     assert result["status"] == 401
+
+
+@pytest.mark.asyncio
+async def test_token_auto_refresh():
+    c = MetaAPIClient.__new__(MetaAPIClient)
+    c.base_url = "https://graph.facebook.com/v18.0/123456"
+    c._client = None
+    c._cached_token = None
+
+    with patch.object(c, "_resolve_token", return_value="token-v1"):
+        await c._get_client()
+        assert c._cached_token == "token-v1"
+
+    with patch.object(c, "_resolve_token", return_value="token-v2"):
+        old_client = c._client
+        client2 = await c._get_client()
+        assert c._cached_token == "token-v2"
+        assert client2 is not old_client
+        assert old_client.is_closed
+
+
+@pytest.mark.asyncio
+async def test_token_unchanged_reuses_client():
+    c = MetaAPIClient.__new__(MetaAPIClient)
+    c.base_url = "https://graph.facebook.com/v18.0/123456"
+    c._client = None
+    c._cached_token = None
+
+    with patch.object(c, "_resolve_token", return_value="same-token"):
+        client1 = await c._get_client()
+        client2 = await c._get_client()
+        assert client1 is client2
+
+
+def test_resolve_token_fallback():
+    c = MetaAPIClient.__new__(MetaAPIClient)
+    c.base_url = "https://graph.facebook.com/v18.0/123456"
+
+    with patch.dict("os.environ", {}, clear=True), \
+         patch("core.meta_client.dotenv_values", side_effect=OSError("no file")), \
+         patch("core.meta_client.settings") as mock_settings:
+        mock_settings.WHATSAPP_ACCESS_TOKEN = "fallback-token"
+        token = c._resolve_token()
+        assert token == "fallback-token"
+
+
+def test_resolve_token_from_env():
+    c = MetaAPIClient.__new__(MetaAPIClient)
+    c.base_url = "https://graph.facebook.com/v18.0/123456"
+
+    with patch.dict("os.environ", {}, clear=True), \
+         patch("core.meta_client.dotenv_values", return_value={"WHATSAPP_ACCESS_TOKEN": "fresh-token"}):
+        token = c._resolve_token()
+        assert token == "fresh-token"
+
+
+def test_resolve_token_empty_env_falls_back():
+    c = MetaAPIClient.__new__(MetaAPIClient)
+    c.base_url = "https://graph.facebook.com/v18.0/123456"
+
+    with patch.dict("os.environ", {}, clear=True), \
+         patch("core.meta_client.dotenv_values", return_value={"WHATSAPP_ACCESS_TOKEN": ""}), \
+         patch("core.meta_client.settings") as mock_settings:
+        mock_settings.WHATSAPP_ACCESS_TOKEN = "settings-token"
+        token = c._resolve_token()
+        assert token == "settings-token"
+
+
+def test_resolve_token_os_environ_over_dotenv():
+    c = MetaAPIClient.__new__(MetaAPIClient)
+    c.base_url = "https://graph.facebook.com/v18.0/123456"
+
+    with patch.dict("os.environ", {"WHATSAPP_ACCESS_TOKEN": "env-var-token"}, clear=True), \
+         patch("core.meta_client.dotenv_values", return_value={"WHATSAPP_ACCESS_TOKEN": ""}), \
+         patch("core.meta_client.settings") as mock_settings:
+        mock_settings.WHATSAPP_ACCESS_TOKEN = "settings-token"
+        token = c._resolve_token()
+        assert token == "env-var-token"
+
+
+def test_resolve_token_dotenv_over_os_environ():
+    c = MetaAPIClient.__new__(MetaAPIClient)
+    c.base_url = "https://graph.facebook.com/v18.0/123456"
+
+    with patch.dict("os.environ", {"WHATSAPP_ACCESS_TOKEN": "env-var-token"}, clear=True), \
+         patch("core.meta_client.dotenv_values", return_value={"WHATSAPP_ACCESS_TOKEN": "dotenv-token"}), \
+         patch("core.meta_client.settings") as mock_settings:
+        mock_settings.WHATSAPP_ACCESS_TOKEN = "settings-token"
+        token = c._resolve_token()
+        assert token == "dotenv-token"

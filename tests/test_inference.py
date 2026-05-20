@@ -1,9 +1,7 @@
 import os
-import sqlite3
 import sys
 from unittest.mock import MagicMock, patch
 
-import aiosqlite
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -11,48 +9,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from core.inference import InferenceEngine, _normalize_roles
 from db.database import db as global_db
 
-TEST_DB_PATH = "/tmp/hermes_test/test_inference.db"
-
-
-@pytest.fixture(autouse=True)
-async def setup_test_db():
-    os.makedirs("/tmp/hermes_test", exist_ok=True)
-    if os.path.exists(TEST_DB_PATH):
-        os.remove(TEST_DB_PATH)
-
-    from core.config import settings
-    settings.DB_PATH = TEST_DB_PATH
-
-    schema_path = os.path.join(os.path.dirname(__file__), "..", "db", "schema.sql")
-    with open(schema_path) as f:
-        schema = f.read()
-
-    sync_conn = sqlite3.connect(TEST_DB_PATH)
-    sync_conn.executescript(schema)
-    sync_conn.close()
-
-    if global_db._conn:
-        await global_db._conn.close()
-    global_db._conn = None
-    global_db._conn = await aiosqlite.connect(TEST_DB_PATH)
-    global_db._conn.row_factory = aiosqlite.Row
-
-    yield
-
-    if global_db._conn:
-        await global_db._conn.close()
-    global_db._conn = None
-    if os.path.exists(TEST_DB_PATH):
-        os.remove(TEST_DB_PATH)
-
 
 @pytest.mark.asyncio
 async def test_inference_loads_from_db():
     await global_db.execute(
-        "INSERT INTO agents (name, system_prompt, is_active) VALUES (?, ?, ?)",
-        ("Test Bot", "You are a test prompt.", 1),
+        "INSERT INTO agents (name, system_prompt, is_active) VALUES ($1, $2, $3)",
+        "Test Bot", "You are a test prompt.", True,
     )
-    await global_db.commit()
 
     engine = InferenceEngine()
     mock_response = MagicMock()
@@ -72,10 +35,9 @@ async def test_inference_loads_from_db():
 async def test_inference_fallback_from_db():
     fallbacks = '{"greeting": "Custom hello", "default": "Custom what?"}'
     await global_db.execute(
-        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES (?, ?, ?, ?)",
-        ("Fallback Bot", "...", fallbacks, 1),
+        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES ($1, $2, $3::jsonb, $4)",
+        "Fallback Bot", "...", fallbacks, True,
     )
-    await global_db.commit()
 
     engine = InferenceEngine()
     engine._llm._available = False
@@ -90,10 +52,9 @@ async def test_inference_fallback_from_db():
 @pytest.mark.asyncio
 async def test_escalation_marker_detected():
     await global_db.execute(
-        "INSERT INTO agents (name, system_prompt, escalation_marker, is_active) VALUES (?, ?, ?, ?)",
-        ("Esc Bot", "Be helpful.", "ESCALATE_TO_HUMAN", 1),
+        "INSERT INTO agents (name, system_prompt, escalation_marker, is_active) VALUES ($1, $2, $3, $4)",
+        "Esc Bot", "Be helpful.", "ESCALATE_TO_HUMAN", True,
     )
-    await global_db.commit()
 
     engine = InferenceEngine()
     mock_response = MagicMock()
@@ -113,10 +74,9 @@ async def test_escalation_marker_detected():
 @pytest.mark.asyncio
 async def test_escalation_marker_empty_clean():
     await global_db.execute(
-        "INSERT INTO agents (name, system_prompt, escalation_marker, is_active) VALUES (?, ?, ?, ?)",
-        ("Esc Bot2", "Be helpful.", "ESCALATE_TO_HUMAN", 1),
+        "INSERT INTO agents (name, system_prompt, escalation_marker, is_active) VALUES ($1, $2, $3, $4)",
+        "Esc Bot2", "Be helpful.", "ESCALATE_TO_HUMAN", True,
     )
-    await global_db.commit()
 
     engine = InferenceEngine()
     mock_response = MagicMock()
@@ -135,10 +95,9 @@ async def test_escalation_marker_empty_clean():
 @pytest.mark.asyncio
 async def test_retry_on_rate_limit():
     await global_db.execute(
-        "INSERT INTO agents (name, system_prompt, is_active) VALUES (?, ?, ?)",
-        ("Retry Bot", "Be helpful.", 1),
+        "INSERT INTO agents (name, system_prompt, is_active) VALUES ($1, $2, $3)",
+        "Retry Bot", "Be helpful.", True,
     )
-    await global_db.commit()
 
     engine = InferenceEngine()
     good_response = MagicMock()
@@ -158,10 +117,9 @@ async def test_all_retries_fail_falls_back():
     from openai import RateLimitError
 
     await global_db.execute(
-        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES (?, ?, ?, ?)",
-        ("Fail Bot", "Be helpful.", '{"greeting": "Fallback!", "default": "Default!"}', 1),
+        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES ($1, $2, $3::jsonb, $4)",
+        "Fail Bot", "Be helpful.", '{"greeting": "Fallback!", "default": "Default!"}', True,
     )
-    await global_db.commit()
 
     engine = InferenceEngine()
     with patch.object(engine._llm, "chat_completion", side_effect=RateLimitError(
@@ -180,10 +138,9 @@ async def test_all_retries_fail_falls_back():
 @pytest.mark.asyncio
 async def test_generic_exception_falls_back():
     await global_db.execute(
-        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES (?, ?, ?, ?)",
-        ("Exc Bot", "Be helpful.", '{"default": "Error fallback"}', 1),
+        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES ($1, $2, $3::jsonb, $4)",
+        "Exc Bot", "Be helpful.", '{"default": "Error fallback"}', True,
     )
-    await global_db.commit()
 
     engine = InferenceEngine()
     with patch.object(engine._llm, "chat_completion", side_effect=RuntimeError("unexpected")), \
@@ -197,16 +154,15 @@ async def test_generic_exception_falls_back():
 @pytest.mark.asyncio
 async def test_client_none_returns_fallback():
     await global_db.execute(
-        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES (?, ?, ?, ?)",
-        ("NoClient Bot", "Be helpful.", '{"default": "no client"}', 1),
+        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES ($1, $2, $3::jsonb, $4)",
+        "NoClient Bot", "Be helpful.", '{"default": "no client"}', True,
     )
-    await global_db.commit()
 
     engine = InferenceEngine()
     engine._llm._available = True
 
     with patch.object(engine._llm, "get_client", return_value=None):
-        response, _escalated, _trace = await engine.generate("test")
+        response, _escalate, _trace = await engine.generate("test")
 
     assert "no client" in response
 
@@ -214,10 +170,9 @@ async def test_client_none_returns_fallback():
 @pytest.mark.asyncio
 async def test_response_with_usage():
     await global_db.execute(
-        "INSERT INTO agents (name, system_prompt, is_active) VALUES (?, ?, ?)",
-        ("Usage Bot", "Be helpful.", 1),
+        "INSERT INTO agents (name, system_prompt, is_active) VALUES ($1, $2, $3)",
+        "Usage Bot", "Be helpful.", True,
     )
-    await global_db.commit()
 
     engine = InferenceEngine()
     mock_response = MagicMock()
@@ -241,10 +196,9 @@ async def test_response_with_usage():
 @pytest.mark.asyncio
 async def test_response_none_content():
     await global_db.execute(
-        "INSERT INTO agents (name, system_prompt, is_active) VALUES (?, ?, ?)",
-        ("NoneContent Bot", "Be helpful.", 1),
+        "INSERT INTO agents (name, system_prompt, is_active) VALUES ($1, $2, $3)",
+        "NoneContent Bot", "Be helpful.", True,
     )
-    await global_db.commit()
 
     engine = InferenceEngine()
     mock_response = MagicMock()
@@ -286,28 +240,26 @@ async def test_get_client_not_available():
 
 @pytest.mark.asyncio
 async def test_fallback_price_query():
-    fallbacks = '{"price": "Precios: completo $3000"}'
+    fallbacks = '{"price": "Precios: item principal $3000"}'
     await global_db.execute(
-        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES (?, ?, ?, ?)",
-        ("Price Bot", "...", fallbacks, 1),
+        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES ($1, $2, $3::jsonb, $4)",
+        "Price Bot", "...", fallbacks, True,
     )
-    await global_db.commit()
 
     engine = InferenceEngine()
     engine._llm._available = False
 
-    response, _, _trace = await engine.generate("cuanto cuesta el completo")
+    response, _, _trace = await engine.generate("cuanto cuesta el item principal")
     assert "3000" in response
 
 
 @pytest.mark.asyncio
 async def test_fallback_promo_query():
-    fallbacks = '{"promo": "2x1 en completos hoy"}'
+    fallbacks = '{"promo": "2x1 en items hoy"}'
     await global_db.execute(
-        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES (?, ?, ?, ?)",
-        ("Promo Bot", "...", fallbacks, 1),
+        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES ($1, $2, $3::jsonb, $4)",
+        "Promo Bot", "...", fallbacks, True,
     )
-    await global_db.commit()
 
     engine = InferenceEngine()
     engine._llm._available = False
@@ -320,10 +272,9 @@ async def test_fallback_promo_query():
 async def test_fallback_delivery_query():
     fallbacks = '{"delivery": "Delivery en 30 min"}'
     await global_db.execute(
-        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES (?, ?, ?, ?)",
-        ("Delivery Bot", "...", fallbacks, 1),
+        "INSERT INTO agents (name, system_prompt, fallback_responses, is_active) VALUES ($1, $2, $3::jsonb, $4)",
+        "Delivery Bot", "...", fallbacks, True,
     )
-    await global_db.commit()
 
     engine = InferenceEngine()
     engine._llm._available = False
@@ -335,10 +286,9 @@ async def test_fallback_delivery_query():
 @pytest.mark.asyncio
 async def test_reload():
     await global_db.execute(
-        "INSERT INTO agents (name, system_prompt, is_active) VALUES (?, ?, ?)",
-        ("Reload Bot", "Original prompt.", 1),
+        "INSERT INTO agents (name, system_prompt, is_active) VALUES ($1, $2, $3)",
+        "Reload Bot", "Original prompt.", True,
     )
-    await global_db.commit()
 
     engine = InferenceEngine()
     await engine.reload()

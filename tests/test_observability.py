@@ -1,58 +1,26 @@
 import json
 import os
-import sqlite3
 import sys
 
-import aiosqlite
+import httpx
 import pytest
+import pytest_asyncio
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from db.database import db as global_db
 from db.models import InferenceTrace
 
-TEST_DB_PATH = "/tmp/hermes_test/test_observability.db"
 AUTH = {"Authorization": "Bearer test_dashboard_token"}
 
 
-@pytest.fixture(autouse=True)
-async def setup_test_db():
-    os.makedirs("/tmp/hermes_test", exist_ok=True)
-    if os.path.exists(TEST_DB_PATH):
-        os.remove(TEST_DB_PATH)
-
-    from core.config import settings
-    settings.DB_PATH = TEST_DB_PATH
-
-    schema_path = os.path.join(os.path.dirname(__file__), "..", "db", "schema.sql")
-    with open(schema_path) as f:
-        schema = f.read()
-
-    sync_conn = sqlite3.connect(TEST_DB_PATH)
-    sync_conn.executescript(schema)
-    sync_conn.close()
-
-    if global_db._conn:
-        await global_db._conn.close()
-    global_db._conn = await aiosqlite.connect(TEST_DB_PATH)
-    global_db._conn.row_factory = aiosqlite.Row
-
-    yield
-
-    if global_db._conn:
-        await global_db._conn.close()
-        global_db._conn = None
-    if os.path.exists(TEST_DB_PATH):
-        os.remove(TEST_DB_PATH)
-
-
-@pytest.fixture
-def client():
-    from fastapi.testclient import TestClient
-
+@pytest_asyncio.fixture
+async def client():
     from main import app
-
-    return TestClient(app)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as c:
+        yield c
 
 
 async def _insert_trace(phone, source, error_type=None, error_message=None):
@@ -129,7 +97,7 @@ async def test_debug_trace_endpoint(client):
         "+56910000001", "error", error_type="RuntimeError", error_message="LLM down"
     )
 
-    resp = client.get("/api/debug/trace/+56910000001", headers=AUTH)
+    resp = await client.get("/api/debug/trace/+56910000001", headers=AUTH)
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 2
@@ -143,7 +111,7 @@ async def test_debug_trace_endpoint(client):
 async def test_debug_trace_full_endpoint(client):
     await _insert_trace("+56910000001", "llm")
 
-    resp = client.get("/api/debug/trace/+56910000001/full", headers=AUTH)
+    resp = await client.get("/api/debug/trace/+56910000001/full", headers=AUTH)
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 1
@@ -155,7 +123,7 @@ async def test_debug_trace_full_endpoint(client):
 async def test_debug_health_detail_endpoint(client):
     await _insert_trace("+56910000001", "llm")
 
-    resp = client.get("/api/debug/health-detail", headers=AUTH)
+    resp = await client.get("/api/debug/health-detail", headers=AUTH)
     assert resp.status_code == 200
     data = resp.json()
     assert "llm" in data
@@ -165,20 +133,27 @@ async def test_debug_health_detail_endpoint(client):
 
 @pytest.mark.asyncio
 async def test_correlation_id_in_messages():
+    await global_db.execute(
+        "INSERT INTO conversations (phone, agent_id, state) VALUES ($1, $2, $3)",
+        "+56910000001", 1, "BOT_ACTIVE",
+    )
     msg_id = await global_db.insert_message(
         "+56910000001", "inbound", "customer", "Hola",
         correlation_id="test-corr-123",
     )
     rows = await global_db.fetchall(
-        "SELECT id, correlation_id FROM messages WHERE id = ?",
-        (msg_id,),
+        "SELECT id, correlation_id FROM messages WHERE id = $1", msg_id,
     )
     assert len(rows) == 1
-    assert rows[0][1] == "test-corr-123"
+    assert rows[0]["correlation_id"] == "test-corr-123"
 
 
 @pytest.mark.asyncio
 async def test_correlation_id_in_decisions():
+    await global_db.execute(
+        "INSERT INTO conversations (phone, agent_id, state) VALUES ($1, $2, $3)",
+        "+56910000001", 1, "BOT_ACTIVE",
+    )
     from db.models import AgentDecision
     decision = AgentDecision(
         phone="+56910000001",
@@ -189,11 +164,10 @@ async def test_correlation_id_in_decisions():
     )
     decision_id = await global_db.insert_agent_decision(decision)
     rows = await global_db.fetchall(
-        "SELECT id, correlation_id FROM agent_decisions WHERE id = ?",
-        (decision_id,),
+        "SELECT id, correlation_id FROM agent_decisions WHERE id = $1", decision_id,
     )
     assert len(rows) == 1
-    assert rows[0][1] == "test-corr-456"
+    assert rows[0]["correlation_id"] == "test-corr-456"
 
 
 @pytest.mark.asyncio
@@ -315,12 +289,12 @@ async def test_recent_traces_endpoint(client):
     await _insert_trace("+56910000001", "llm")
     await _insert_trace("+56910000002", "error", error_type="TimeoutError", error_message="timed out")
 
-    resp = client.get("/api/debug/traces/recent", headers=AUTH)
+    resp = await client.get("/api/debug/traces/recent", headers=AUTH)
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 2
 
-    resp_filtered = client.get("/api/debug/traces/recent?source=error", headers=AUTH)
+    resp_filtered = await client.get("/api/debug/traces/recent?source=error", headers=AUTH)
     assert resp_filtered.status_code == 200
     assert len(resp_filtered.json()) == 1
     assert resp_filtered.json()[0]["response_source"] == "error"
@@ -330,12 +304,12 @@ async def test_recent_traces_endpoint(client):
 async def test_trace_by_id_endpoint(client):
     trace_id = await _insert_trace("+56910000001", "llm")
 
-    resp = client.get(f"/api/debug/trace-by-id/{trace_id}", headers=AUTH)
+    resp = await client.get(f"/api/debug/trace-by-id/{trace_id}", headers=AUTH)
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == trace_id
     assert "request_messages" in data
     assert "response_raw" in data
 
-    resp_not_found = client.get("/api/debug/trace-by-id/99999", headers=AUTH)
+    resp_not_found = await client.get("/api/debug/trace-by-id/99999", headers=AUTH)
     assert resp_not_found.status_code == 404

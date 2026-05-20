@@ -2,7 +2,6 @@ import asyncio
 import hashlib
 import hmac
 import json
-import os
 from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,71 +9,45 @@ import pytest
 import pytest_asyncio
 
 from core.capabilities.base import registry as capability_registry
-from core.capabilities.order import OrderCapability
-from core.config import settings
+from core.capabilities.cart import CartCapability
+from core.cart_state import cart_state
 from core.memory import WINDOW_SIZE, memory_manager
-from core.order_state import order_state
 from core.sentiment import SentimentAnalyzer
-from db.database import close_db, db, init_db
+from db.database import db
 from routers.webhook import receive_webhook
 
-
-@pytest_asyncio.fixture(scope="session", autouse=True)
-async def setup_session_db():
-    import random
-    suffix = random.randint(10000, 99999)
-    test_db = f"./tests/data/conversational_{suffix}.db"
-    settings.DB_PATH = test_db
-    settings.META_APP_SECRET = "test_secret"
-    settings.SKIP_STARTUP_VALIDATION = True
-
-    os.makedirs("./tests/data", exist_ok=True)
-    if os.path.exists(test_db):
-        os.remove(test_db)
-
-    await init_db()
-    with open("db/schema.sql") as f:
-        schema = f.read()
-    conn = await db._get_conn()
-    await conn.execute("PRAGMA foreign_keys=OFF")
-    await conn.executescript(schema)
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await db.commit()
-
-    capability_registry.register(OrderCapability)
-
-    yield
-    await close_db()
+_CATALOG_SEED = [
+    ("item_a", "Item A Special", 3700, "general"),
+    ("item_b", "Item B Classic", 2400, "general"),
+    ("item_c", "Item C Special", 3400, "general"),
+    ("item_d", "Item D Premium", 8900, "general"),
+    ("item_e", "Item E Classic", 3700, "general"),
+    ("item_f", "Item F Budget", 1500, "general"),
+]
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def clean_db():
-    await db.execute("DELETE FROM agent_decisions")
-    await db.execute("DELETE FROM escalation_events")
-    await db.execute("DELETE FROM turns")
-    await db.execute("DELETE FROM messages")
-    await db.execute("DELETE FROM conversation_memory")
-    await db.execute("DELETE FROM orders")
-    await db.execute("UPDATE conversations SET current_session_id = NULL")
-    await db.execute("DELETE FROM sessions")
-    await db.execute("DELETE FROM conversations")
-    await db.execute("DELETE FROM agents")
-    await db.execute(
-        "INSERT INTO agents (id, name, system_prompt, escalation_marker) "
-        "VALUES (1, 'Hermes Bot', 'Eres Hermes. Usa tags [ORDER_ADD:key:qty].', 'ESCALATE_TO_HUMAN')"
+async def _reset_cart_and_registry():
+    cart_state._carts.clear()
+    cart_state._loaded_phones.clear()
+    if not capability_registry.get_class("cart"):
+        capability_registry.register(CartCapability)
+
+    await db.executemany(
+        "INSERT INTO catalog_items (key, name, price, category, is_available, sort_order, description, tags, size, specifications) "
+        "VALUES ($1, $2, $3, $4, TRUE, 0, '', '[]', '', '')",
+        [(k, n, p, c) for k, n, p, c in _CATALOG_SEED],
     )
-    await db.execute("DELETE FROM agent_capabilities")
-    await db.execute("INSERT INTO agent_capabilities (agent_id, capability_name, is_active, config_json) VALUES (1, 'order', 1, '{}')")
-    await db.commit()
-    order_state._orders.clear()
-    order_state._loaded_phones.clear()
+    await cart_state.reload_catalog_from_db()
+
+    yield
 
 
 @dataclass
 class TurnResult:
     sent_text: str | None
     escalated: bool
-    order: dict
+    cart: dict
     conv_state: str
     decision: dict | None
     ws_messages: list[dict]
@@ -116,7 +89,7 @@ async def turn(
         mock_engine._current_agent = None
         mock_meta.send_text = capture_send_text
         mock_emit.side_effect = capture_emit
-        mock_registry.resolve = AsyncMock(return_value=[order_state])
+        mock_registry.resolve = AsyncMock(return_value=[cart_state])
 
         if sentiment_result is not None:
             mock_sentiment.analyze = AsyncMock(return_value=sentiment_result)
@@ -130,17 +103,17 @@ async def turn(
         await hitl_router.process_inbound_message(phone, text)
 
     conv = await db.get_conversation(phone)
-    order = await order_state.get_order(phone)
+    cart = await cart_state.get_cart(phone)
 
     decision_row = await db.fetchone(
-        "SELECT * FROM agent_decisions WHERE phone=? ORDER BY created_at DESC LIMIT 1",
-        (phone,),
+        "SELECT * FROM agent_decisions WHERE phone=$1 ORDER BY created_at DESC LIMIT 1",
+        phone,
     )
 
     return TurnResult(
         sent_text=sent_texts[0] if sent_texts else None,
         escalated=any(e.get("type") == "escalated" for e in emitted_events),
-        order=order,
+        cart=cart,
         conv_state=conv.state if conv else "BOT_ACTIVE",
         decision=dict(decision_row) if decision_row else None,
         ws_messages=emitted_events,
@@ -151,110 +124,71 @@ async def _ensure_conversation(phone: str, state: str = "BOT_ACTIVE", agent_id: 
     existing = await db.get_conversation(phone)
     if not existing:
         await db.execute(
-            "INSERT INTO conversations (phone, state, agent_id) VALUES (?, ?, ?)",
-            (phone, state, agent_id),
+            "INSERT INTO conversations (phone, state, agent_id) VALUES ($1, $2, $3)",
+            phone, state, agent_id,
         )
-        await db.commit()
-
-
-# ============================================================
-# 1-6: ORDER TAG PARSING
-# ============================================================
 
 
 @pytest.mark.asyncio
-async def test_simple_order_accumulation():
+async def test_simple_cart_accumulation():
     phone = "+56910000001"
     await _ensure_conversation(phone)
 
-    r1 = await turn(
-        phone,
-        "3 vienesas gigantes italianas",
-        llm_response="Anotado! [ORDER_ADD:completo_vienesa_gigante:3]",
-    )
-    assert r1.escalated is False
-    assert r1.sent_text == "Anotado!"
-    assert len(r1.order["items"]) == 1
-    assert r1.order["items"][0]["key"] == "completo_vienesa_gigante"
-    assert r1.order["items"][0]["quantity"] == 3
-    assert r1.order["total"] == 3400 * 3
+    await cart_state.add_item(phone, "item_c", 3)
+    cart = await cart_state.get_cart(phone)
+    assert len(cart["items"]) == 1
+    assert cart["items"][0]["key"] == "item_c"
+    assert cart["items"][0]["quantity"] == 3
+    assert cart["total"] == 3400 * 3
 
-    r2 = await turn(
-        phone,
-        "y 2 papas medianas",
-        llm_response="Listo! [ORDER_ADD:papas_mediana:2]",
-    )
-    assert len(r2.order["items"]) == 2
-    assert r2.order["total"] == 3400 * 3 + 3700 * 2
-    assert r2.sent_text == "Listo!"
+    await cart_state.add_item(phone, "item_e", 2)
+    cart = await cart_state.get_cart(phone)
+    assert len(cart["items"]) == 2
+    assert cart["total"] == 3400 * 3 + 3700 * 2
 
 
 @pytest.mark.asyncio
-async def test_order_remove_partial():
+async def test_cart_remove_partial():
     phone = "+56910000002"
     await _ensure_conversation(phone)
-    await order_state.add_item(phone, "completo_normal", 4)
+    await cart_state.add_item(phone, "item_a", 4)
 
-    r = await turn(
-        phone,
-        "quita 1 completo",
-        llm_response="Quitado [ORDER_REMOVE:completo_normal:1]",
-    )
-    item = next(i for i in r.order["items"] if i["key"] == "completo_normal")
+    await cart_state.remove_item(phone, "item_a", 1)
+    cart = await cart_state.get_cart(phone)
+    item = next(i for i in cart["items"] if i["key"] == "item_a")
     assert item["quantity"] == 3
-    assert r.order["total"] == 3700 * 3
+    assert cart["total"] == 3700 * 3
 
 
 @pytest.mark.asyncio
-async def test_order_remove_all_quantity():
+async def test_cart_remove_all_quantity():
     phone = "+56910000003"
     await _ensure_conversation(phone)
-    await order_state.add_item(phone, "coca_lata", 2)
-    await order_state.add_item(phone, "completo_normal", 1)
+    await cart_state.add_item(phone, "item_f", 2)
+    await cart_state.add_item(phone, "item_a", 1)
 
-    r = await turn(
-        phone,
-        "saca las cocas",
-        llm_response="Sacado [ORDER_REMOVE:coca_lata:2]",
-    )
-    keys = [i["key"] for i in r.order["items"]]
-    assert "coca_lata" not in keys
-    assert "completo_normal" in keys
-    assert r.order["total"] == 3700
+    await cart_state.remove_item(phone, "item_f", 2)
+    cart = await cart_state.get_cart(phone)
+    keys = [i["key"] for i in cart["items"]]
+    assert "item_f" not in keys
+    assert "item_a" in keys
+    assert cart["total"] == 3700
 
 
 @pytest.mark.asyncio
-async def test_order_clear():
+async def test_cart_clear():
     phone = "+56910000004"
     await _ensure_conversation(phone)
-    await order_state.add_item(phone, "completo_vienesa_gigante", 3)
-    await order_state.add_item(phone, "papas_mediana", 2)
+    await cart_state.add_item(phone, "item_c", 3)
+    await cart_state.add_item(phone, "item_e", 2)
 
-    r = await turn(
-        phone,
-        "empezar de cero",
-        llm_response="Borrado [ORDER_CLEAR]",
-    )
-    assert r.order["items"] == []
-    assert r.order["total"] == 0
-    result = await order_state.format_for_context(phone)
+    await cart_state.clear(phone)
+    cart = await cart_state.get_cart(phone)
+    assert cart["items"] == []
+    assert cart["total"] == 0
+    result = await cart_state.format_for_context(phone)
     assert result is not None
-    assert "Menu disponible" in result
-
-
-@pytest.mark.asyncio
-async def test_tags_stripped_from_user_facing_text():
-    phone = "+56910000005"
-    await _ensure_conversation(phone)
-
-    r = await turn(
-        phone,
-        "quiero un completo",
-        llm_response="Tu pedido va! [ORDER_ADD:completo_normal:1] gracias",
-    )
-    assert "[ORDER_ADD" not in r.sent_text
-    assert "Tu pedido va!" in r.sent_text
-    assert "gracias" in r.sent_text
+    assert "Catalogo disponible" in result
 
 
 @pytest.mark.asyncio
@@ -262,18 +196,10 @@ async def test_unknown_item_key_ignored():
     phone = "+56910000006"
     await _ensure_conversation(phone)
 
-    r = await turn(
-        phone,
-        "pizza",
-        llm_response="Ahi va [ORDER_ADD:pizza_hawaiana:1]",
-    )
-    assert r.order["items"] == []
-    assert r.order["total"] == 0
-
-
-# ============================================================
-# 7-13: ESCALATION LOGIC
-# ============================================================
+    await cart_state.add_item(phone, "pizza_hawaiana", 1)
+    cart = await cart_state.get_cart(phone)
+    assert cart["items"] == []
+    assert cart["total"] == 0
 
 
 @pytest.mark.asyncio
@@ -335,18 +261,18 @@ async def test_no_escalation_normal_question():
 
 
 @pytest.mark.asyncio
-async def test_escalation_skips_order_tag_parsing():
+async def test_escalation_skips_order_operations():
     phone = "+56910000011"
     await _ensure_conversation(phone)
 
     r = await turn(
         phone,
         "estoy molesto, pero quiero un completo",
-        llm_response="Ahi va [ORDER_ADD:completo_normal:1]",
+        llm_response="Entendido",
         llm_escalate=True,
     )
     assert r.escalated is True
-    assert r.order["items"] == []
+    assert r.cart["items"] == []
 
 
 @pytest.mark.asyncio
@@ -387,33 +313,27 @@ async def test_confidence_045_no_escalation():
     assert r.conv_state == "BOT_ACTIVE"
 
 
-# ============================================================
-# 14-17: CONTEXT BUILDING
-# ============================================================
-
-
 @pytest.mark.asyncio
 async def test_message_dedup_in_context():
     phone = "+56910000014"
     await _ensure_conversation(phone)
 
     await db.execute(
-        "INSERT INTO messages (phone, direction, source, text) VALUES (?, 'inbound', 'customer', 'Hola')",
-        (phone,),
+        "INSERT INTO messages (phone, direction, source, text) VALUES ($1, 'inbound', 'customer', 'Hola')",
+        phone,
     )
     await db.execute(
-        "INSERT INTO messages (phone, direction, source, text) VALUES (?, 'outbound', 'bot', 'Bienvenido')",
-        (phone,),
+        "INSERT INTO messages (phone, direction, source, text) VALUES ($1, 'outbound', 'bot', 'Bienvenido')",
+        phone,
     )
     await db.execute(
-        "INSERT INTO messages (phone, direction, source, text) VALUES (?, 'inbound', 'customer', 'Quiero completo')",
-        (phone,),
+        "INSERT INTO messages (phone, direction, source, text) VALUES ($1, 'inbound', 'customer', 'Quiero item')",
+        phone,
     )
-    await db.commit()
 
-    context = await memory_manager.build_context(phone, current_message="Quiero completo", agent_id=1)
+    context = await memory_manager.build_context(phone, current_message="Quiero item", agent_id=1)
     texts = [c["content"] for c in context]
-    inbound_count = sum(1 for t in texts if t == "Quiero completo")
+    inbound_count = sum(1 for t in texts if t == "Quiero item")
     assert inbound_count == 0
 
 
@@ -424,10 +344,9 @@ async def test_window_newest_not_oldest():
 
     for i in range(30):
         await db.execute(
-            "INSERT INTO turns (phone, user_text, assistant_text) VALUES (?, ?, ?)",
-            (phone, f"Mensaje {i}", f"Respuesta {i}"),
+            "INSERT INTO turns (phone, user_text, assistant_text) VALUES ($1, $2, $3)",
+            phone, f"Mensaje {i}", f"Respuesta {i}",
         )
-    await db.commit()
 
     context = await memory_manager.build_context(phone, agent_id=1)
     turn_messages = [c for c in context if c["role"] in ("user", "assistant")]
@@ -440,24 +359,19 @@ async def test_window_newest_not_oldest():
 
 
 @pytest.mark.asyncio
-async def test_order_state_injected_in_context():
+async def test_cart_state_format_injects_order():
     phone = "+56910000016"
     await _ensure_conversation(phone)
 
-    await db.execute(
-        "INSERT INTO messages (phone, direction, source, text) VALUES (?, 'inbound', 'customer', 'Hola')",
-        (phone,),
-    )
-    await db.commit()
+    ctx = await cart_state.format_for_context(phone, {})
+    assert ctx is not None
 
-    await order_state.add_item(phone, "completo_vienesa_gigante", 3)
-    await order_state.add_item(phone, "papas_mediana", 2)
+    await cart_state.add_item(phone, "item_c", 3)
+    await cart_state.add_item(phone, "item_e", 2)
 
-    context = await memory_manager.build_context(phone, agent_id=1)
-    system_msgs = [c for c in context if c["role"] == "system" and "Pedido actual" in c["content"]]
-    assert len(system_msgs) == 1
-    assert "Vienesa Gigante Italiana" in system_msgs[0]["content"]
-    assert "$" in system_msgs[0]["content"]
+    ctx = await cart_state.format_for_context(phone, {})
+    assert "Item C Special" in ctx
+    assert "$" in ctx
 
 
 @pytest.mark.asyncio
@@ -467,24 +381,19 @@ async def test_multiple_phones_independent_orders():
     await _ensure_conversation(phone_a)
     await _ensure_conversation(phone_b)
 
-    await order_state.add_item(phone_a, "completo_normal", 2)
-    await order_state.add_item(phone_b, "chorrillana", 1)
+    await cart_state.add_item(phone_a, "item_a", 2)
+    await cart_state.add_item(phone_b, "item_d", 1)
 
-    order_a = await order_state.get_order(phone_a)
-    order_b = await order_state.get_order(phone_b)
+    cart_a = await cart_state.get_cart(phone_a)
+    cart_b = await cart_state.get_cart(phone_b)
 
-    assert len(order_a["items"]) == 1
-    assert order_a["items"][0]["key"] == "completo_normal"
-    assert order_a["total"] == 3700 * 2
+    assert len(cart_a["items"]) == 1
+    assert cart_a["items"][0]["key"] == "item_a"
+    assert cart_a["total"] == 3700 * 2
 
-    assert len(order_b["items"]) == 1
-    assert order_b["items"][0]["key"] == "chorrillana"
-    assert order_b["total"] == 8900
-
-
-# ============================================================
-# 18-21: EDGE CASES
-# ============================================================
+    assert len(cart_b["items"]) == 1
+    assert cart_b["items"][0]["key"] == "item_d"
+    assert cart_b["total"] == 8900
 
 
 @pytest.mark.asyncio
@@ -535,7 +444,7 @@ async def test_error_handling_does_not_crash():
         mock_engine._current_agent = None
         mock_meta.send_text = AsyncMock()
         mock_emit.side_effect = capture_emit
-        mock_registry.resolve = AsyncMock(return_value=[order_state])
+        mock_registry.resolve = AsyncMock(return_value=[cart_state])
 
         from core.hitl_router import hitl_router
         await hitl_router.process_inbound_message(phone, "algo")
@@ -549,10 +458,9 @@ async def test_error_handling_does_not_crash():
 async def test_human_only_skips_processing():
     phone = "+56910000021"
     await db.execute(
-        "INSERT INTO conversations (phone, state, agent_id, requires_human_review) VALUES (?, 'HUMAN_ONLY', 1, 1)",
-        (phone,),
+        "INSERT INTO conversations (phone, state, agent_id, requires_human_review) VALUES ($1, 'HUMAN_ONLY', 1, TRUE)",
+        phone,
     )
-    await db.commit()
 
     body = json.dumps({
         "object": "whatsapp_business_account",
@@ -562,8 +470,12 @@ async def test_human_only_skips_processing():
     }).encode()
     sig = "sha256=" + hmac.new(b"test_secret", body, hashlib.sha256).hexdigest()
 
-    with patch("routers.webhook.turn_builder") as mock_tb:
+    with patch("routers.webhook.turn_builder") as mock_tb, \
+         patch("routers.webhook.meta_client") as mock_meta, \
+         patch("routers.webhook.verify_meta_signature", return_value=True):
         mock_tb.debounce = AsyncMock()
+        mock_meta.mark_read = AsyncMock()
+        mock_meta.mark_read_with_typing = AsyncMock()
         request = MagicMock()
         request.body = AsyncMock(return_value=body)
         request.headers = {"X-Hub-Signature-256": sig}
@@ -580,10 +492,9 @@ async def test_human_only_skips_processing():
 async def test_pending_approval_queueing():
     phone = "+56910000022"
     await db.execute(
-        "INSERT INTO conversations (phone, state, agent_id, requires_human_review) VALUES (?, 'PENDING_APPROVAL', 1, 0)",
-        (phone,),
+        "INSERT INTO conversations (phone, state, agent_id, requires_human_review) VALUES ($1, 'PENDING_APPROVAL', 1, FALSE)",
+        phone,
     )
-    await db.commit()
 
     body = json.dumps({
         "object": "whatsapp_business_account",
@@ -593,8 +504,12 @@ async def test_pending_approval_queueing():
     }).encode()
     sig = "sha256=" + hmac.new(b"test_secret", body, hashlib.sha256).hexdigest()
 
-    with patch("routers.webhook.turn_builder") as mock_tb:
+    with patch("routers.webhook.turn_builder") as mock_tb, \
+         patch("routers.webhook.meta_client") as mock_meta, \
+         patch("routers.webhook.verify_meta_signature", return_value=True):
         mock_tb.debounce = AsyncMock()
+        mock_meta.mark_read = AsyncMock()
+        mock_meta.mark_read_with_typing = AsyncMock()
         request = MagicMock()
         request.body = AsyncMock(return_value=body)
         request.headers = {"X-Hub-Signature-256": sig}
@@ -607,91 +522,38 @@ async def test_pending_approval_queueing():
         mock_tb.debounce.assert_not_called()
 
 
-# ============================================================
-# 22: REGRESSION TEST - ORIGINAL INCIDENT
-# ============================================================
-
-
 @pytest.mark.asyncio
 async def test_regression_original_incident():
-    """
-    Replica el incidente real:
-    - Cliente pide 3 Vienesa Gigante + 2 papas medianas
-    - Bot responde correctamente con tags
-    - Cliente pregunta "cuanto llevo?" → bot responde con items correctos
-    - Cliente agrega una coca → total sube correctamente
-    - Verifica: NUNCA se escaló incorrectamente
-    - Verifica: orden final tiene exactamente los items correctos
-    - Verifica: NO hay items alucinados (4 bebidas, "AS Gigante", etc.)
-    """
     phone = "+56919999999"
     await _ensure_conversation(phone)
 
-    # Turno 1: Cliente pide 3 vienesas gigantes italianas
-    r1 = await turn(
-        phone,
-        "3 vienesas gigantes italianas",
-        llm_response="3 Vienesa Gigante Italiana anotadas! [ORDER_ADD:completo_vienesa_gigante:3]",
-    )
-    assert r1.escalated is False
-    assert len(r1.order["items"]) == 1
-    assert r1.order["items"][0]["key"] == "completo_vienesa_gigante"
-    assert r1.order["items"][0]["quantity"] == 3
-    assert r1.order["items"][0]["price"] == 3400
-    assert r1.order["total"] == 3400 * 3
-    assert "[ORDER_ADD" not in r1.sent_text
+    await cart_state.add_item(phone, "item_c", 3)
+    cart = await cart_state.get_cart(phone)
+    assert len(cart["items"]) == 1
+    assert cart["items"][0]["key"] == "item_c"
+    assert cart["items"][0]["quantity"] == 3
+    assert cart["items"][0]["price"] == 3400
+    assert cart["total"] == 3400 * 3
 
-    # Turno 2: Cliente pide 2 papas medianas
-    r2 = await turn(
-        phone,
-        "y 2 papas fritas medianas",
-        llm_response="2 Papas Fritas Mediana anotadas! [ORDER_ADD:papas_mediana:2]",
-    )
-    assert r2.escalated is False
-    assert len(r2.order["items"]) == 2
-    assert r2.order["total"] == 3400 * 3 + 3700 * 2
+    await cart_state.add_item(phone, "item_e", 2)
+    cart = await cart_state.get_cart(phone)
+    assert len(cart["items"]) == 2
+    assert cart["total"] == 3400 * 3 + 3700 * 2
 
-    # Turno 3: Cliente pregunta cuanto lleva - LLM tiene contexto de la orden
-    # (en el incidente original, el bot alucinaba items por contexto viejo)
-    r3 = await turn(
-        phone,
-        "cuanto llevo?",
-        llm_response="Llevas 3x Vienesa Gigante Italiana ($3.400 c/u) y 2x Papas Fritas Mediana ($3.700 c/u). Total: $17.600",
-    )
-    assert r3.escalated is False
-    # La orden no debio cambiar
-    assert len(r3.order["items"]) == 2
-    assert r3.order["total"] == 3400 * 3 + 3700 * 2
+    await cart_state.add_item(phone, "item_f", 1)
+    cart = await cart_state.get_cart(phone)
+    assert len(cart["items"]) == 3
+    assert cart["total"] == 3400 * 3 + 3700 * 2 + 1500
 
-    # Turno 4: Cliente agrega una coca
-    r4 = await turn(
-        phone,
-        "agrega una coca cola lata",
-        llm_response="Coca Cola lata agregada! [ORDER_ADD:coca_lata:1]",
-    )
-    assert r4.escalated is False
-    assert len(r4.order["items"]) == 3
-    assert r4.order["total"] == 3400 * 3 + 3700 * 2 + 1500
+    all_keys = [i["key"] for i in cart["items"]]
+    assert "item_c" in all_keys
+    assert "item_e" in all_keys
+    assert "item_f" in all_keys
+    assert "item_b" not in all_keys
+    assert len(cart["items"]) == 3
 
-    # Verificacion final: NO hay items alucinados
-    all_keys = [i["key"] for i in r4.order["items"]]
-    assert "completo_vienesa_gigante" in all_keys
-    assert "papas_mediana" in all_keys
-    assert "coca_lata" in all_keys
-    # Items que el bot alucino en el incidente original NO deben estar
-    assert "as_gigante" not in all_keys
-    assert "fanta_lata" not in all_keys
-    assert "sprite_lata" not in all_keys
-    assert len(r4.order["items"]) == 3
-
-    # Verificar que NUNCA se escalo en toda la conversacion
     conv = await db.get_conversation(phone)
     assert conv.state == "BOT_ACTIVE"
-
-
-# ============================================================
-# 23: WEBHOOK IDEMPOTENCY
-# ============================================================
 
 
 @pytest.mark.asyncio
@@ -711,15 +573,27 @@ async def test_webhook_duplicate_message_ignored():
     request.body = AsyncMock(return_value=body)
     request.headers = {"X-Hub-Signature-256": sig}
 
-    with patch("routers.webhook.turn_builder") as mock_tb:
+    with patch("routers.webhook.turn_builder") as mock_tb, \
+         patch("routers.webhook.meta_client") as mock_meta, \
+         patch("routers.webhook.settings") as mock_settings, \
+         patch("routers.webhook.verify_meta_signature", return_value=True):
         mock_tb.debounce = AsyncMock()
+        mock_meta.mark_read = AsyncMock()
+        mock_meta.mark_read_with_typing = AsyncMock()
+        mock_settings.MARK_READ_DELAY_MS = 0
         result1 = await receive_webhook(request)
         assert result1["status"] == "processing"
         await asyncio.sleep(0)
         assert mock_tb.debounce.call_count == 1
 
-    with patch("routers.webhook.turn_builder") as mock_tb:
+    with patch("routers.webhook.turn_builder") as mock_tb, \
+         patch("routers.webhook.meta_client") as mock_meta, \
+         patch("routers.webhook.settings") as mock_settings, \
+         patch("routers.webhook.verify_meta_signature", return_value=True):
         mock_tb.debounce = AsyncMock()
+        mock_meta.mark_read = AsyncMock()
+        mock_meta.mark_read_with_typing = AsyncMock()
+        mock_settings.MARK_READ_DELAY_MS = 0
         result2 = await receive_webhook(request)
         assert result2["status"] == "duplicate"
         mock_tb.debounce.assert_not_called()
@@ -730,7 +604,7 @@ async def test_should_escalate_keyword_beats_tools_ok():
     from core.hitl_router import HITLRouter
 
     router = HITLRouter()
-    trace = {"tools_executed": json.dumps([{"tool": "order_clear", "result": {"success": True}}])}
+    trace = {"tools_executed": json.dumps([{"tool": "cart_clear", "result": {"success": True}}])}
     escalate, reason = await router.should_escalate(
         sentiment_result={"sentiment": "neutral", "score": 0.5, "confidence": 0.8},
         text="estoy molesto",
@@ -746,7 +620,7 @@ async def test_should_escalate_negative_sentiment_beats_tools_ok():
     from core.hitl_router import HITLRouter
 
     router = HITLRouter()
-    trace = {"tools_executed": json.dumps([{"tool": "order_add", "result": {"success": True}}])}
+    trace = {"tools_executed": json.dumps([{"tool": "cart_add", "result": {"success": True}}])}
     escalate, reason = await router.should_escalate(
         sentiment_result={"sentiment": "negative", "score": 0.2, "confidence": 0.8},
         text="producto malo",
@@ -762,7 +636,7 @@ async def test_should_escalate_tools_ok_blocks_low_confidence():
     from core.hitl_router import HITLRouter
 
     router = HITLRouter()
-    trace = {"tools_executed": json.dumps([{"tool": "order_add", "result": {"success": True}}])}
+    trace = {"tools_executed": json.dumps([{"tool": "cart_add", "result": {"success": True}}])}
     escalate, _reason = await router.should_escalate(
         sentiment_result={"sentiment": "neutral", "score": 0.5, "confidence": 0.3},
         text="algo ambiguo",

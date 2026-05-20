@@ -3,13 +3,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.cart_state import CartState
 from core.inference import (
     InferenceEngine,
     _guess_capability,
     _looks_like_leaked_tool_call,
     _try_extract_synthetic_tool_call,
 )
-from core.order_state import OrderState
 
 
 def _make_tool_call(tc_id: str, name: str, args: dict) -> MagicMock:
@@ -47,21 +47,21 @@ def _make_text_response(text: str) -> MagicMock:
 
 
 def test_looks_like_leaked_tool_call_positive():
-    assert _looks_like_leaked_tool_call('{"type": "function", "function": {"name": "order_add", "parameters": {"item_key": "completo_normal", "qty": 1}}}')
-    assert _looks_like_leaked_tool_call('{"name": "order_add", "arguments": {"item_key": "completo_normal"}}')
-    assert _looks_like_leaked_tool_call('{"tool_calls": [{"function": {"name": "order_add"}}]}')
+    assert _looks_like_leaked_tool_call('{"type": "function", "function": {"name": "cart_add", "parameters": {"item_key": "item_a", "qty": 1}}}')
+    assert _looks_like_leaked_tool_call('{"name": "cart_add", "arguments": {"item_key": "item_a"}}')
+    assert _looks_like_leaked_tool_call('{"tool_calls": [{"function": {"name": "cart_add"}}]}')
 
 
 def test_looks_like_leaked_tool_call_negative():
-    assert not _looks_like_leaked_tool_call("Hola, te agrego 2 completos a tu pedido.")
+    assert not _looks_like_leaked_tool_call("Hola, te agrego 2 items a tu carrito.")
     assert not _looks_like_leaked_tool_call("")
     assert not _looks_like_leaked_tool_call(None)
     assert not _looks_like_leaked_tool_call("El precio es $3.700")
-    assert not _looks_like_leaked_tool_call('{ "summary": "cliente pidio completo" }')
+    assert not _looks_like_leaked_tool_call('{ "summary": "cliente pidio item" }')
 
 
 def test_guess_capability():
-    assert _guess_capability('{"name": "order_add"}') == "order"
+    assert _guess_capability('{"name": "cart_add"}') == "cart"
     assert _guess_capability('{"name": "appointment_add"}') == "appointment"
     assert _guess_capability('{"name": "membership_activate"}') == "membership"
     assert _guess_capability('{"name": "lead_update_field"}') == "lead"
@@ -69,25 +69,25 @@ def test_guess_capability():
 
 
 def test_try_extract_synthetic_tool_call():
-    known = {"order_add", "order_remove", "escalate_to_human"}
-    text = '{"type": "function", "function": {"name": "order_add", "parameters": {"item_key": "completo_normal", "qty": 1}}}'
+    known = {"cart_add", "cart_remove", "escalate_to_human"}
+    text = '{"type": "function", "function": {"name": "cart_add", "parameters": {"item_key": "item_a", "qty": 1}}}'
     result = _try_extract_synthetic_tool_call(text, known)
     assert result is not None
-    assert result["name"] == "order_add"
-    assert result["args"]["item_key"] == "completo_normal"
+    assert result["name"] == "cart_add"
+    assert result["args"]["item_key"] == "item_a"
     assert result["args"]["qty"] == 1
     assert result["id"].startswith("synthetic_")
 
 
 def test_try_extract_synthetic_tool_call_unknown_name():
-    known = {"order_add"}
+    known = {"cart_add"}
     text = '{"name": "unknown_tool", "arguments": {}}'
     result = _try_extract_synthetic_tool_call(text, known)
     assert result is None
 
 
 def test_try_extract_synthetic_tool_call_malformed():
-    known = {"order_add"}
+    known = {"cart_add"}
     assert _try_extract_synthetic_tool_call("not json at all", known) is None
     assert _try_extract_synthetic_tool_call("{broken json", known) is None
     assert _try_extract_synthetic_tool_call("{}", known) is None
@@ -100,17 +100,17 @@ async def test_tool_discipline_instruction_in_system_prompt():
     engine._llm.get_client = MagicMock(return_value=MagicMock())
     engine._load_agent = AsyncMock(return_value=None)
 
-    order_cap = OrderState()
+    order_cap = CartState()
     order_cap._ensure_loaded = AsyncMock()
     order_cap._persist = AsyncMock()
 
-    leaked_json = '{"type": "function", "function": {"name": "order_add", "parameters": {"item_key": "completo_normal", "qty": 1}}}'
+    leaked_json = '{"type": "function", "function": {"name": "cart_add", "parameters": {"item_key": "item_a", "qty": 1}}}'
     text_resp = _make_text_response(leaked_json)
 
-    retry_tc = _make_tool_call("retry_tc_1", "order_add", {"item_key": "completo_normal", "qty": 1})
+    retry_tc = _make_tool_call("retry_tc_1", "cart_add", {"item_key": "item_a", "qty": 1})
     retry_resp = _make_tool_response([retry_tc])
 
-    final_resp = _make_text_response("Te agregue un completo normal.")
+    final_resp = _make_text_response("Te agregue un item.")
 
     call_count = 0
 
@@ -129,12 +129,12 @@ async def test_tool_discipline_instruction_in_system_prompt():
         engine._llm, "get_client", return_value=MagicMock()
     ):
         result = await engine.generate(
-            "Quiero un completo",
+            "Quiero un item",
             capabilities=[order_cap],
             phone="+56910000001",
         )
 
-    assert result[0] == "Te agregue un completo normal."
+    assert result[0] == "Te agregue un item."
     assert not result[1]
 
 
@@ -144,17 +144,17 @@ async def test_leaked_json_tool_call_retry():
     engine._llm._available = True
     engine._load_agent = AsyncMock(return_value=None)
 
-    order_cap = OrderState()
+    order_cap = CartState()
     order_cap._ensure_loaded = AsyncMock()
     order_cap._persist = AsyncMock()
 
-    leaked_json = '{"type": "function", "function": {"name": "order_add", "parameters": {"item_key": "completo_normal", "qty": 1}}}'
+    leaked_json = '{"type": "function", "function": {"name": "cart_add", "parameters": {"item_key": "item_a", "qty": 1}}}'
     text_resp = _make_text_response(leaked_json)
 
-    retry_tc = _make_tool_call("retry_tc_1", "order_add", {"item_key": "completo_normal", "qty": 1})
+    retry_tc = _make_tool_call("retry_tc_1", "cart_add", {"item_key": "item_a", "qty": 1})
     retry_resp = _make_tool_response([retry_tc])
 
-    final_resp = _make_text_response("Te agregue un completo normal.")
+    final_resp = _make_text_response("Te agregue un item.")
 
     call_count = 0
 
@@ -171,13 +171,13 @@ async def test_leaked_json_tool_call_retry():
         engine._llm, "get_client", return_value=MagicMock()
     ):
         text, escalated, _trace = await engine.generate(
-            "Quiero un completo",
+            "Quiero un item",
             capabilities=[order_cap],
             phone="+56910000001",
         )
 
-        assert "completo" in text.lower() or "agreg" in text.lower()
-        assert not escalated
+    assert "item" in text.lower() or "agreg" in text.lower()
+    assert not escalated
 
 
 @pytest.mark.asyncio
@@ -186,16 +186,16 @@ async def test_leaked_json_synthetic_fallback():
     engine._llm._available = True
     engine._load_agent = AsyncMock(return_value=None)
 
-    order_cap = OrderState()
+    order_cap = CartState()
     order_cap._ensure_loaded = AsyncMock()
     order_cap._persist = AsyncMock()
 
-    leaked_json = '{"type": "function", "function": {"name": "order_add", "parameters": {"item_key": "completo_normal", "qty": 1}}}'
+    leaked_json = '{"type": "function", "function": {"name": "cart_add", "parameters": {"item_key": "item_a", "qty": 1}}}'
     text_resp = _make_text_response(leaked_json)
 
     retry_resp = _make_text_response(leaked_json)
 
-    final_resp = _make_text_response("Listo, agregue tu completo.")
+    final_resp = _make_text_response("Listo, agregue tu item.")
 
     call_count = 0
 
@@ -212,7 +212,7 @@ async def test_leaked_json_synthetic_fallback():
         engine._llm, "get_client", return_value=MagicMock()
     ):
         text, escalated, trace = await engine.generate(
-            "Quiero un completo",
+            "Quiero un item",
             capabilities=[order_cap],
             phone="+56910000001",
         )
@@ -220,7 +220,7 @@ async def test_leaked_json_synthetic_fallback():
     assert "listo" in text.lower() or "agreg" in text.lower()
     assert not escalated
     tools_executed = json.loads(trace["tools_executed"]) if trace["tools_executed"] else []
-    assert any(te["tool"] == "order_add" for te in tools_executed)
+    assert any(te["tool"] == "cart_add" for te in tools_executed)
 
 
 @pytest.mark.asyncio
@@ -229,11 +229,11 @@ async def test_legitimate_text_not_mistaken_for_leak():
     engine._llm._available = True
     engine._load_agent = AsyncMock(return_value=None)
 
-    order_cap = OrderState()
+    order_cap = CartState()
     order_cap._ensure_loaded = AsyncMock()
     order_cap._persist = AsyncMock()
 
-    legit_text = "Hola! Nuestro menu tiene completos desde $3.700. Quieres algo?"
+    legit_text = "Hola! Nuestro catalogo tiene items desde $3.700. Quieres algo?"
     text_resp = _make_text_response(legit_text)
 
     with patch.object(engine._llm, "chat_completion", return_value=text_resp), patch.object(
@@ -245,7 +245,7 @@ async def test_legitimate_text_not_mistaken_for_leak():
             phone="+56910000001",
         )
 
-    assert "completo" in text.lower() or "menu" in text.lower() or "$3.700" in text
+    assert "item" in text.lower() or "catalogo" in text.lower() or "$3.700" in text
     assert not escalated
 
 
@@ -255,11 +255,11 @@ async def test_leaked_json_final_output_escalates():
     engine._llm._available = True
     engine._load_agent = AsyncMock(return_value=None)
 
-    order_cap = OrderState()
+    order_cap = CartState()
     order_cap._ensure_loaded = AsyncMock()
     order_cap._persist = AsyncMock()
 
-    leaked_json = '{"type": "function", "function": {"name": "order_add", "parameters": {"item_key": "completo_normal", "qty": 1}}}'
+    leaked_json = '{"type": "function", "function": {"name": "cart_add", "parameters": {"item_key": "item_a", "qty": 1}}}'
 
     text_resp = _make_text_response(leaked_json)
 
@@ -276,7 +276,7 @@ async def test_leaked_json_final_output_escalates():
         engine._llm, "get_client", return_value=MagicMock()
     ):
         _text, escalated, trace = await engine.generate(
-            "Quiero un completo",
+            "Quiero un item",
             capabilities=[order_cap],
             phone="+56910000001",
         )
@@ -287,7 +287,7 @@ async def test_leaked_json_final_output_escalates():
 
 def test_sanitize_llm_output_unmodified():
     from core.security import sanitize_llm_output
-    leaked = '{"type": "function", "function": {"name": "order_add"}}'
+    leaked = '{"type": "function", "function": {"name": "cart_add"}}'
     result = sanitize_llm_output(leaked)
-    assert "order_add" in result
+    assert "cart_add" in result
     assert result.startswith("{")

@@ -31,7 +31,7 @@ def test_negative_cancelar(analyzer):
 
 
 def test_negative_anular(analyzer):
-    result = analyzer._heuristic_analysis("Anula mi pedido por favor")
+    result = analyzer._heuristic_analysis("Anula mi carrito por favor")
     assert result["sentiment"] == "negative"
 
 
@@ -93,7 +93,7 @@ def test_exclamation_without_positive_stays_negative(analyzer):
 
 
 def test_neutral(analyzer):
-    result = analyzer._heuristic_analysis("Hola, cuánto cuesta el completo?")
+    result = analyzer._heuristic_analysis("Hola, cuánto cuesta el item?")
     assert result["sentiment"] == "neutral"
     assert 0.4 <= result["score"] <= 0.7
 

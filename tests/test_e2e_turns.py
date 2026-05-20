@@ -1,6 +1,4 @@
 import asyncio
-import os
-from contextlib import suppress
 from unittest.mock import AsyncMock
 
 import pytest
@@ -8,29 +6,8 @@ import pytest_asyncio
 
 from core.inference import _normalize_roles
 from core.turn_builder import TurnBuilder
-from db.database import close_db, db, init_db
+from db.database import db
 from db.models import Turn
-
-
-@pytest_asyncio.fixture(scope="session", autouse=True)
-async def setup_session_db():
-    os.environ["DB_DIR"] = "./tests/data"
-    os.environ["DB_NAME"] = "test_e2e_turns.db"
-    os.environ["DB_PATH"] = "./tests/data/test_e2e_turns.db"
-
-    os.makedirs("./tests/data", exist_ok=True)
-    if os.path.exists("./tests/data/test_e2e_turns.db"):
-        with suppress(PermissionError):
-            os.remove("./tests/data/test_e2e_turns.db")
-
-    await init_db()
-    with open("db/schema.sql") as f:
-        schema = f.read()
-    await db._conn.executescript(schema)
-    await db.commit()
-
-    yield
-    await close_db()
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -40,15 +17,14 @@ async def clean_db():
     await db.execute("DELETE FROM conversation_memory")
     await db.execute("DELETE FROM escalation_events")
     await db.execute("DELETE FROM agent_decisions")
-    await db.execute("DELETE FROM orders")
+    await db.execute("DELETE FROM carts")
     await db.execute("UPDATE conversations SET current_session_id = NULL")
     await db.execute("DELETE FROM sessions")
     await db.execute("DELETE FROM conversations")
     await db.execute("DELETE FROM agents")
-    await db.execute("INSERT INTO agents (id, name, system_prompt) VALUES (1, 'Default Agent', 'Prompt')")
+    await db.execute("INSERT INTO agents (id, name, system_prompt) VALUES ($1, $2, $3)", 1, 'Default Agent', 'Prompt')
     await db.execute("DELETE FROM agent_capabilities")
-    await db.execute("INSERT INTO agent_capabilities (agent_id, capability_name, is_active, config_json) VALUES (1, 'order', 1, '{}')")
-    await db.commit()
+    await db.execute("INSERT INTO agent_capabilities (agent_id, capability_name, is_active, config_json) VALUES ($1, $2, $3, $4)", 1, 'cart', True, '{}')
 
 
 @pytest.mark.asyncio
@@ -57,8 +33,7 @@ async def test_burst_three_messages_single_llm_call():
     builder.debounce_seconds = 0.1
 
     phone = "+569E2E0001"
-    await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES (?, 'BOT_ACTIVE', 1)", (phone,))
-    await db.commit()
+    await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES ($1, $2, $3)", phone, 'BOT_ACTIVE', 1)
 
     process_turn_mock = AsyncMock()
     builder.set_process_turn_fn(process_turn_mock)
@@ -80,7 +55,7 @@ async def test_burst_three_messages_single_llm_call():
 @pytest.mark.asyncio
 async def test_turn_based_history_no_400():
     phone = "+569E2E0002"
-    await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES (?, 'BOT_ACTIVE', 1)", (phone,))
+    await db.execute("INSERT INTO conversations (phone, state, agent_id) VALUES ($1, $2, $3)", phone, 'BOT_ACTIVE', 1)
 
     for i in range(5):
         await db.insert_turn(Turn(
@@ -88,7 +63,6 @@ async def test_turn_based_history_no_400():
             user_text=f"User message {i}",
             assistant_text=f"Bot reply {i}",
         ))
-    await db.commit()
 
     from core.memory import memory_manager
     history = await memory_manager.build_context(phone, agent_id=1)

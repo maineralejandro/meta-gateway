@@ -35,7 +35,8 @@ def mock_deps():
         mock_mc.mark_read_with_typing = AsyncMock(return_value={"success": True})
 
         mock_db = MagicMock()
-        mock_db.fetchone = AsyncMock(return_value=("BOT_ACTIVE", False))
+        mock_row = {"state": "BOT_ACTIVE", "requires_human_review": False}
+        mock_db.fetchone = AsyncMock(return_value=mock_row)
         mock_db.insert_message = AsyncMock(return_value=1)
         mock_db.execute_transaction = AsyncMock()
         mock_db.increment_session_message_count = AsyncMock()
@@ -144,7 +145,7 @@ def test_receive_webhook_duplicate(client, mock_deps):
 
 
 def test_receive_webhook_human_only(client, mock_deps):
-    mock_deps["db"].fetchone = AsyncMock(return_value=("HUMAN_ONLY", False))
+    mock_deps["db"].fetchone = AsyncMock(return_value={"state": "HUMAN_ONLY", "requires_human_review": False})
 
     body = {
         "entry": [{
@@ -167,7 +168,7 @@ def test_receive_webhook_human_only(client, mock_deps):
 
 
 def test_receive_webhook_pending_approval(client, mock_deps):
-    mock_deps["db"].fetchone = AsyncMock(return_value=("PENDING_APPROVAL", False))
+    mock_deps["db"].fetchone = AsyncMock(return_value={"state": "PENDING_APPROVAL", "requires_human_review": False})
 
     body = {
         "entry": [{
@@ -284,7 +285,7 @@ def test_receive_webhook_empty_entries(client, mock_deps):
 
 
 def test_receive_webhook_requires_human_review(client, mock_deps):
-    mock_deps["db"].fetchone = AsyncMock(return_value=("BOT_ACTIVE", True))
+    mock_deps["db"].fetchone = AsyncMock(return_value={"state": "BOT_ACTIVE", "requires_human_review": True})
 
     body = {
         "entry": [{
