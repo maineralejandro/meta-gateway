@@ -1,0 +1,2452 @@
+{
+  "catalog_items": [
+    {
+      "key": "tabla_new_order",
+      "name": "New Order",
+      "price": 4900,
+      "category": "tablas",
+      "description": "10 sopaipillas de cóctel acompañadas de una porción de pebre"
+    },
+    {
+      "key": "tabla_the_cure",
+      "name": "The Cure",
+      "price": 6900,
+      "category": "tablas",
+      "description": "400 gramos de Papas Fritas naturales acompañadas de salsa de Ajo y Cilantro"
+    },
+    {
+      "key": "tabla_gorillaz",
+      "name": "Gorillaz",
+      "price": 6900,
+      "category": "tablas",
+      "description": "Nachos artesanales acompañados de guacamole"
+    },
+    {
+      "key": "tabla_the_smiths",
+      "name": "The Smiths",
+      "price": 9900,
+      "category": "tablas",
+      "description": "Pimentón Asado, relleno con un salteado de verduras, champiñones, un toque de queso azul, reducción en leche de almendras gratinado con queso parmesano. Acompañado de nachos artesanales"
+    },
+    {
+      "key": "tabla_depeche_mode",
+      "name": "Depeche Mode",
+      "price": 11900,
+      "category": "tablas",
+      "description": "500 gramos de Papas Fritas naturales bañadas en Salsa de Queso Cheddar con Carne Mechada, Tocino o Champiñones Salteados"
+    },
+    {
+      "key": "chorr_adele",
+      "name": "Adele",
+      "category": "chorrillanas",
+      "description": "Papas fritas y Pollo salteado, todo bañado en una exquisita salsa blanca de Champiñones, cubierto con Queso y Albahaca espolvoreada",
+      "variants": [
+        {
+          "label": "Chica",
+          "price": 14900
+        },
+        {
+          "label": "Mediana",
+          "price": 18900
+        },
+        {
+          "label": "Grande",
+          "price": 23900
+        }
+      ]
+    },
+    {
+      "key": "chorr_amy",
+      "name": "Amy",
+      "category": "chorrillanas",
+      "description": "Papas fritas acompañadas de Seitán salteado en salsa de soya con cebolla morada, tomates, pimentón y sésamo",
+      "variants": [
+        {
+          "label": "Chica",
+          "price": 11900
+        },
+        {
+          "label": "Mediana",
+          "price": 14900
+        }
+      ]
+    },
+    {
+      "key": "chorr_dua_lipa",
+      "name": "Dua Lipa",
+      "category": "chorrillanas",
+      "description": "Papas fritas acompañadas de champiñones salteados en crema de pesto y Roquefort, tomates cherry flambéados en aceite de oliva, todo espolvoreado con queso de cabra y albahaca fresca",
+      "variants": [
+        {
+          "label": "Chica",
+          "price": 14900
+        },
+        {
+          "label": "Mediana",
+          "price": 18900
+        },
+        {
+          "label": "Grande",
+          "price": 23900
+        }
+      ]
+    },
+    {
+      "key": "chorr_beatles_tradicional",
+      "name": "Beatles Tradicional",
+      "category": "chorrillanas",
+      "description": "Plato típico porteño, consistente en Papas Fritas, Cebolla, Huevos, Carne de Vacuno, Longaniza Artesanal y Queso",
+      "variants": [
+        {
+          "label": "Chica",
+          "price": 17900
+        },
+        {
+          "label": "Mediana",
+          "price": 22900
+        },
+        {
+          "label": "Grande",
+          "price": 29900
+        }
+      ]
+    },
+    {
+      "key": "chorr_beatles_mechada",
+      "name": "Beatles Mechada",
+      "category": "chorrillanas",
+      "description": "Papas Fritas, Cebolla, Huevos, Carne Deshilachada de Vacuno, Longaniza Artesanal y Queso",
+      "variants": [
+        {
+          "label": "Chica",
+          "price": 17900
+        },
+        {
+          "label": "Mediana",
+          "price": 22900
+        },
+        {
+          "label": "Grande",
+          "price": 29900
+        }
+      ]
+    },
+    {
+      "key": "quesa_annie_lennox",
+      "name": "Annie Lennox",
+      "price": 8900,
+      "category": "quesadillas",
+      "description": "Queso de Cabra, Tomate Cherry, Pesto",
+      "specifications": "Base de Tortilla de Trigo y Mozzarella"
+    },
+    {
+      "key": "quesa_calvin_harris",
+      "name": "Calvin Harris",
+      "price": 10900,
+      "category": "quesadillas",
+      "description": "Carne mechada, Pesto y Queso Azul",
+      "specifications": "Base de Tortilla de Trigo y Mozzarella"
+    },
+    {
+      "key": "quesa_erasure",
+      "name": "Erasure",
+      "price": 7900,
+      "category": "quesadillas",
+      "description": "Pollo, Pimentón y Cilantro",
+      "specifications": "Base de Tortilla de Trigo y Mozzarella"
+    },
+    {
+      "key": "quesa_pulp",
+      "name": "Pulp",
+      "price": 8900,
+      "category": "quesadillas",
+      "description": "Pollo, Champiñones y Salsa Barbecue",
+      "specifications": "Base de Tortilla de Trigo y Mozzarella"
+    },
+    {
+      "key": "quesa_oasis",
+      "name": "Oasis",
+      "price": 9900,
+      "category": "quesadillas",
+      "description": "Choclo, Champiñones, cebolla caramelizada",
+      "specifications": "Base de Tortilla de Trigo y Mozzarella"
+    },
+    {
+      "key": "quesa_radiohead",
+      "name": "Radiohead",
+      "price": 7900,
+      "category": "quesadillas",
+      "description": "Mechada de Vacuno, Cheddar",
+      "specifications": "Base de Tortilla de Trigo y Mozzarella"
+    },
+    {
+      "key": "sand_deep_purple",
+      "name": "Deep Purple",
+      "category": "sandwiches",
+      "description": "Mozzarella, Queso de Cabra, Tomate Cherry salteado en Aceite de Oliva y Pesto",
+      "variants": [
+        {
+          "label": "Churrasco",
+          "price": 9900
+        },
+        {
+          "label": "Hamburguesa",
+          "price": 8900
+        },
+        {
+          "label": "Mechada",
+          "price": 8900
+        },
+        {
+          "label": "Pollo",
+          "price": 8900
+        },
+        {
+          "label": "Seitán",
+          "price": 8500
+        }
+      ],
+      "specifications": "Todos incluyen 100 grs. de Papas Fritas y Lactonesa de Ajo"
+    },
+    {
+      "key": "sand_motorhead",
+      "name": "Motorhead",
+      "category": "sandwiches",
+      "description": "Tocino, Pepinillos, Queso Cheddar, Cebolla Morada y Salsa Barbecue",
+      "variants": [
+        {
+          "label": "Churrasco",
+          "price": 9900
+        },
+        {
+          "label": "Hamburguesa",
+          "price": 8900
+        },
+        {
+          "label": "Mechada",
+          "price": 8900
+        },
+        {
+          "label": "Pollo",
+          "price": 8900
+        }
+      ],
+      "specifications": "Todos incluyen 100 grs. de Papas Fritas y Lactonesa de Ajo"
+    },
+    {
+      "key": "sand_peter_gabriel",
+      "name": "Peter Gabriel",
+      "category": "sandwiches",
+      "description": "Champiñones salteados con Salsa de Queso Azul, Cebolla Caramelizada y Albahaca espolvoreada",
+      "variants": [
+        {
+          "label": "Churrasco",
+          "price": 9900
+        },
+        {
+          "label": "Hamburguesa",
+          "price": 8900
+        },
+        {
+          "label": "Mechada",
+          "price": 8900
+        },
+        {
+          "label": "Pollo",
+          "price": 8900
+        },
+        {
+          "label": "Seitán",
+          "price": 8500
+        }
+      ],
+      "specifications": "Todos incluyen 100 grs. de Papas Fritas y Lactonesa de Ajo"
+    },
+    {
+      "key": "sand_pink_floyd",
+      "name": "Pink Floyd",
+      "category": "sandwiches",
+      "description": "Tomate, Palta, Mayonesa y Queso",
+      "variants": [
+        {
+          "label": "Churrasco",
+          "price": 9900
+        },
+        {
+          "label": "Hamburguesa",
+          "price": 8900
+        },
+        {
+          "label": "Mechada",
+          "price": 8900
+        },
+        {
+          "label": "Pollo",
+          "price": 8900
+        },
+        {
+          "label": "Seitán",
+          "price": 8500
+        }
+      ],
+      "specifications": "Todos incluyen 100 grs. de Papas Fritas y Lactonesa de Ajo"
+    },
+    {
+      "key": "sand_queen",
+      "name": "Queen",
+      "category": "sandwiches",
+      "description": "Huevo Frito, cebolla caramelizada (a lo pobre)",
+      "variants": [
+        {
+          "label": "Churrasco",
+          "price": 8900
+        },
+        {
+          "label": "Hamburguesa",
+          "price": 7900
+        },
+        {
+          "label": "Mechada",
+          "price": 7900
+        },
+        {
+          "label": "Pollo",
+          "price": 7900
+        },
+        {
+          "label": "Seitán",
+          "price": 7500
+        }
+      ],
+      "specifications": "Todos incluyen 100 grs. de Papas Fritas y Lactonesa de Ajo"
+    },
+    {
+      "key": "sand_yes",
+      "name": "Yes",
+      "category": "sandwiches",
+      "description": "Camarones Salteados, Palta, Mayonesa Kraft",
+      "variants": [
+        {
+          "label": "Churrasco",
+          "price": 10900
+        },
+        {
+          "label": "Hamburguesa",
+          "price": 9900
+        },
+        {
+          "label": "Mechada",
+          "price": 9900
+        },
+        {
+          "label": "Pollo",
+          "price": 9900
+        }
+      ],
+      "specifications": "Todos incluyen 100 grs. de Papas Fritas y Lactonesa de Ajo"
+    },
+    {
+      "key": "pizza_boy_george",
+      "name": "Boy George",
+      "category": "pizzas",
+      "description": "Camarones Salteados, Palta y Cebolla Morada",
+      "variants": [
+        {
+          "label": "Mediana 32 cm",
+          "price": 13900
+        },
+        {
+          "label": "Grande 40 cm",
+          "price": 19900
+        }
+      ],
+      "specifications": "Base de Mozzarella y Salsa de Tomates"
+    },
+    {
+      "key": "pizza_calvin_harris",
+      "name": "Calvin Harris",
+      "category": "pizzas",
+      "description": "Carne mechada, Pesto y Queso Azul",
+      "variants": [
+        {
+          "label": "Mediana 32 cm",
+          "price": 12900
+        },
+        {
+          "label": "Grande 40 cm",
+          "price": 18900
+        }
+      ],
+      "specifications": "Base de Mozzarella y Salsa de Tomates"
+    },
+    {
+      "key": "pizza_david_bowie",
+      "name": "David Bowie",
+      "category": "pizzas",
+      "description": "Trozos de carne de vacuno salteados a la peruana, con cebolla morada, tomates flambéados",
+      "variants": [
+        {
+          "label": "Mediana 32 cm",
+          "price": 15900
+        },
+        {
+          "label": "Grande 40 cm",
+          "price": 21900
+        }
+      ],
+      "specifications": "Base de Mozzarella y Salsa de Tomates"
+    },
+    {
+      "key": "pizza_dido",
+      "name": "Dido",
+      "category": "pizzas",
+      "description": "Jamón Serrano, Queso Azul, Albahaca",
+      "variants": [
+        {
+          "label": "Mediana 32 cm",
+          "price": 11900
+        },
+        {
+          "label": "Grande 40 cm",
+          "price": 16900
+        }
+      ],
+      "specifications": "Base de Mozzarella y Salsa de Tomates"
+    },
+    {
+      "key": "pizza_elton_john",
+      "name": "Elton John",
+      "category": "pizzas",
+      "description": "Pollo, Tocino, Queso Cheddar, Salsa Barbecue",
+      "variants": [
+        {
+          "label": "Mediana 32 cm",
+          "price": 11900
+        },
+        {
+          "label": "Grande 40 cm",
+          "price": 16900
+        }
+      ],
+      "specifications": "Base de Mozzarella y Salsa de Tomates"
+    },
+    {
+      "key": "pizza_elvis_costello",
+      "name": "Elvis Costello",
+      "category": "pizzas",
+      "description": "Tomates Cherry, Queso de Cabra, Pesto",
+      "variants": [
+        {
+          "label": "Mediana 32 cm",
+          "price": 10900
+        },
+        {
+          "label": "Grande 40 cm",
+          "price": 15900
+        }
+      ],
+      "specifications": "Base de Mozzarella y Salsa de Tomates"
+    },
+    {
+      "key": "pizza_eric_clapton",
+      "name": "Eric Clapton",
+      "category": "pizzas",
+      "description": "Tocino, Cebolla Caramelizada, Champiñones y Pimentón",
+      "variants": [
+        {
+          "label": "Mediana 32 cm",
+          "price": 10900
+        },
+        {
+          "label": "Grande 40 cm",
+          "price": 15900
+        }
+      ],
+      "specifications": "Base de Mozzarella y Salsa de Tomates"
+    },
+    {
+      "key": "pizza_f_mercury",
+      "name": "F. Mercury",
+      "category": "pizzas",
+      "description": "Carne Mechada, Tocino, Aceitunas, Cebolla Morada",
+      "variants": [
+        {
+          "label": "Mediana 32 cm",
+          "price": 12900
+        },
+        {
+          "label": "Grande 40 cm",
+          "price": 18900
+        }
+      ],
+      "specifications": "Base de Mozzarella y Salsa de Tomates"
+    },
+    {
+      "key": "pizza_george_michael",
+      "name": "George Michael",
+      "category": "pizzas",
+      "description": "Pollo, Pepperoni, Choclo, Cebolla Morada",
+      "variants": [
+        {
+          "label": "Mediana 32 cm",
+          "price": 11900
+        },
+        {
+          "label": "Grande 40 cm",
+          "price": 16900
+        }
+      ],
+      "specifications": "Base de Mozzarella y Salsa de Tomates"
+    },
+    {
+      "key": "pizza_morrissey",
+      "name": "Morrissey",
+      "category": "pizzas",
+      "description": "Champiñones, Choclo, Pimentón y Aceitunas",
+      "variants": [
+        {
+          "label": "Mediana 32 cm",
+          "price": 10900
+        },
+        {
+          "label": "Grande 40 cm",
+          "price": 15900
+        }
+      ],
+      "specifications": "Base de Mozzarella y Salsa de Tomates"
+    },
+    {
+      "key": "pizza_peter_gabriel",
+      "name": "Peter Gabriel",
+      "category": "pizzas",
+      "description": "Queso Azul, Champiñones, Cebolla Caramelizada y Albahaca",
+      "variants": [
+        {
+          "label": "Mediana 32 cm",
+          "price": 10900
+        },
+        {
+          "label": "Grande 40 cm",
+          "price": 15900
+        }
+      ],
+      "specifications": "Base de Mozzarella y Salsa de Tomates"
+    },
+    {
+      "key": "pizza_simply_red",
+      "name": "Simply Red",
+      "category": "pizzas",
+      "description": "Carne Mechada, Tocino, Queso Cheddar",
+      "variants": [
+        {
+          "label": "Mediana 32 cm",
+          "price": 13900
+        },
+        {
+          "label": "Grande 40 cm",
+          "price": 19900
+        }
+      ],
+      "specifications": "Base de Mozzarella y Salsa de Tomates"
+    },
+    {
+      "key": "coctel_bitter_sweet",
+      "name": "Bitter Sweet Symphony",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "casa",
+      "description": "Whisky, Licor de Pomelo de la casa, Campari, Jugo de Naranja, Jugo de Limón, Angostura"
+    },
+    {
+      "key": "coctel_coffee_martini",
+      "name": "Coffee Martini",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "casa",
+      "description": "Stolichnaya macerado con café de Grano, Kahlúa, Jarabe de Miel"
+    },
+    {
+      "key": "coctel_coquette",
+      "name": "Coquette",
+      "price": 6500,
+      "category": "cocteles",
+      "subcategory": "casa",
+      "description": "Whisky, Licor de Cassis, Frambuesa, Miel, Crema, Salsa de Chocolate"
+    },
+    {
+      "key": "coctel_dame_un_beso",
+      "name": "Dame un Beso",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "casa",
+      "description": "Gin, Jugo de Limón, Goma, Licor de Frutilla"
+    },
+    {
+      "key": "coctel_demorame",
+      "name": "Demórame Otra Vez",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "casa",
+      "description": "Vodka de Mora, Frambuesa, Frutilla, Limón y Crema"
+    },
+    {
+      "key": "coctel_flechazo",
+      "name": "Flechazo",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "casa",
+      "description": "Vodka Stolichnaya, Campari, Piña, Maracuyá, Jugo de Limón, Cerveza Golden"
+    },
+    {
+      "key": "coctel_gin_passion",
+      "name": "Gin Passion",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "casa",
+      "description": "Gin, Licor de Maracuyá, Goma, Jugo de Limón"
+    },
+    {
+      "key": "coctel_kashmir",
+      "name": "Kashmir",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "casa",
+      "description": "Vodka macerado con Té Chai, Whisky, Bacardi Manzana, Jugo de Naranja, Goma"
+    },
+    {
+      "key": "coctel_maracuya_on_fire",
+      "name": "Maracuyá on Fire",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "casa",
+      "description": "Fireball Cinnamon Whisky, Maracuyá, Albahaca, Espumante"
+    },
+    {
+      "key": "coctel_papayapapiri",
+      "name": "Papayapapiri",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "casa",
+      "description": "Ron macerado en Papaya, Ron Havana Añejo Especial, Licor de Flor de Sauco, Jugo de Limón, Goma"
+    },
+    {
+      "key": "coctel_pisco_sour_pie_limon",
+      "name": "Pisco Sour Pie de Limón",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "casa",
+      "description": "Pisco, Jugo de Limón, Goma, Leche Condensada, Crema Chantilly, Canela en Polvo"
+    },
+    {
+      "key": "coctel_say_my_name",
+      "name": "Say My Name!",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "casa",
+      "description": "Barceló Añejo, Bacardi Coco, Maracuyá, Mango, Limón, crema"
+    },
+    {
+      "key": "coctel_say_not_cream",
+      "name": "Say Not Cream",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "casa",
+      "description": "Pisco El Gobernador 35°, Licor de Pomelo, Mango, Maracuyá, Jugo de Limón y Cerveza Banana Pancake"
+    },
+    {
+      "key": "coctel_sweet_dreams",
+      "name": "Sweet Dreams",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "casa",
+      "description": "Gin, Licor de Flor de Sauco, Blue Curacao, Limón, Goma, Albúmina"
+    },
+    {
+      "key": "coctel_vaya_baya",
+      "name": "Vaya Baya!",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "casa",
+      "description": "Gin, Licor de Cassis, Ramazzotti, Frambuesa, Frutilla y Limón"
+    },
+    {
+      "key": "coctel_cocaina_rusa",
+      "name": "Cocaína Rusa",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "compartir",
+      "description": "3 Shots de Vodka Stolichnaya, limón en rodaja con café y azúcar"
+    },
+    {
+      "key": "coctel_golpeaditos",
+      "name": "Golpeaditos",
+      "price": 6900,
+      "category": "cocteles",
+      "subcategory": "compartir",
+      "description": "3 Shots de Tequila terminados con Sprite"
+    },
+    {
+      "key": "coctel_tequilazo",
+      "name": "Tequilazo",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "compartir",
+      "description": "3 Shots de Tequila, Limón y Sal"
+    },
+    {
+      "key": "mojito_tradicional",
+      "name": "Mojito Tradicional, Albahaca o Mixto",
+      "price": 4900,
+      "category": "cocteles",
+      "subcategory": "mojitos",
+      "description": "Ron Blanco, Limón, Menta, Goma, Soda"
+    },
+    {
+      "key": "mojito_bacardi_sabores",
+      "name": "Mojito Bacardi Sabores",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "mojitos",
+      "description": "Ron Bacardi, Limón, Menta, Goma, Soda"
+    },
+    {
+      "key": "mojito_cerveza",
+      "name": "Mojito Cerveza",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "mojitos",
+      "description": "Ron Blanco, Cerveza Golden (Mauco), Limón, Menta, Goma"
+    },
+    {
+      "key": "mojito_espumante",
+      "name": "Mojito Espumante",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "mojitos",
+      "description": "Ron Blanco, Limón, Menta, Goma, Espumante"
+    },
+    {
+      "key": "mojito_frutal",
+      "name": "Mojito Frutal",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "mojitos",
+      "description": "Ron Blanco, Fruta, Limón, Menta, Goma, Soda"
+    },
+    {
+      "key": "mojito_jagermeister",
+      "name": "Mojito Jägermeister",
+      "price": 6500,
+      "category": "cocteles",
+      "subcategory": "mojitos",
+      "description": "Jägermeister, Limón, Menta, Goma, Soda"
+    },
+    {
+      "key": "mojito_huesillos",
+      "name": "Mojito Huesillo",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "mojitos",
+      "description": "Ron Blanco, Licor de Huesillos, Limón, Menta, Goma, Soda"
+    },
+    {
+      "key": "pitcher_mojito_tradicional",
+      "name": "Pitcher Mojito Tradicional/Albahaca/Mixto",
+      "price": 12500,
+      "category": "cocteles",
+      "subcategory": "mojitos",
+      "description": "Pitcher de Mojito Tradicional, Albahaca o Mixto"
+    },
+    {
+      "key": "pitcher_mojito_frutal",
+      "name": "Pitcher Mojito Frutal",
+      "price": 13900,
+      "category": "cocteles",
+      "subcategory": "mojitos",
+      "description": "Pitcher de Mojito Frutal"
+    },
+    {
+      "key": "pitcher_mojito_brut",
+      "name": "Pitcher Mojito Brut",
+      "price": 13900,
+      "category": "cocteles",
+      "subcategory": "mojitos",
+      "description": "Pitcher de Mojito Brut"
+    },
+    {
+      "key": "pitcher_mojito_cerveza",
+      "name": "Pitcher Mojito Cerveza",
+      "price": 14900,
+      "category": "cocteles",
+      "subcategory": "mojitos",
+      "description": "Pitcher de Mojito Cerveza"
+    },
+    {
+      "key": "sour_aji_verde",
+      "name": "Pisco Sour Ají Verde",
+      "category": "cocteles",
+      "subcategory": "sour",
+      "variants": [
+        {
+          "label": "Catedral",
+          "price": 5500
+        },
+        {
+          "label": "Jarra",
+          "price": 6900
+        }
+      ]
+    },
+    {
+      "key": "sour_amaretto",
+      "name": "Amaretto Sour",
+      "category": "cocteles",
+      "subcategory": "sour",
+      "variants": [
+        {
+          "label": "Catedral",
+          "price": 4900
+        },
+        {
+          "label": "Jarra",
+          "price": 6500
+        }
+      ]
+    },
+    {
+      "key": "sour_chardonnay",
+      "name": "Chardonnay Sour",
+      "category": "cocteles",
+      "subcategory": "sour",
+      "variants": [
+        {
+          "label": "Catedral",
+          "price": 4900
+        },
+        {
+          "label": "Jarra",
+          "price": 6500
+        }
+      ]
+    },
+    {
+      "key": "sour_pisco",
+      "name": "Pisco Sour",
+      "category": "cocteles",
+      "subcategory": "sour",
+      "variants": [
+        {
+          "label": "Catedral",
+          "price": 4900
+        },
+        {
+          "label": "Jarra",
+          "price": 6500
+        }
+      ]
+    },
+    {
+      "key": "sour_pisco_frutal",
+      "name": "Pisco Sour Frutal",
+      "category": "cocteles",
+      "subcategory": "sour",
+      "variants": [
+        {
+          "label": "Catedral",
+          "price": 5900
+        },
+        {
+          "label": "Jarra",
+          "price": 7500
+        }
+      ]
+    },
+    {
+      "key": "sour_premium_peruano_quebranta",
+      "name": "Pisco Sour Peruano (Quebranta)",
+      "price": 6900,
+      "category": "cocteles",
+      "subcategory": "sour_premium",
+      "description": "Pisco Sour Peruano con Pisco Quebranta"
+    },
+    {
+      "key": "sour_premium_aba_40",
+      "name": "Pisco Sour Aba 40°",
+      "price": 7500,
+      "category": "cocteles",
+      "subcategory": "sour_premium",
+      "description": "Pisco Sour con Pisco Aba 40°"
+    },
+    {
+      "key": "sour_premium_gobernador_35",
+      "name": "Pisco Sour El Gobernador 35°",
+      "price": 6500,
+      "category": "cocteles",
+      "subcategory": "sour_premium",
+      "description": "Pisco Sour con Pisco El Gobernador 35°"
+    },
+    {
+      "key": "sour_premium_gobernador_40",
+      "name": "Pisco Sour El Gobernador 40°",
+      "price": 7900,
+      "category": "cocteles",
+      "subcategory": "sour_premium",
+      "description": "Pisco Sour con Pisco El Gobernador 40°"
+    },
+    {
+      "key": "sour_premium_los_nichos_35",
+      "name": "Pisco Sour Los Nichos 35°",
+      "price": 6500,
+      "category": "cocteles",
+      "subcategory": "sour_premium",
+      "description": "Pisco Sour con Pisco Los Nichos 35°"
+    },
+    {
+      "key": "sour_premium_los_nichos_40",
+      "name": "Pisco Sour Los Nichos 40°",
+      "price": 6900,
+      "category": "cocteles",
+      "subcategory": "sour_premium",
+      "description": "Pisco Sour con Pisco Los Nichos 40°"
+    },
+    {
+      "key": "sour_premium_monje_negro_40",
+      "name": "Pisco Sour Monje Negro 40°",
+      "price": 6900,
+      "category": "cocteles",
+      "subcategory": "sour_premium",
+      "description": "Pisco Sour con Pisco Monje Negro 40°"
+    },
+    {
+      "key": "gin_clover_club",
+      "name": "Clover Club",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "gin",
+      "description": "Gin Bombay Sapphire, Jugo de Limón, Sirope de Frambuesa"
+    },
+    {
+      "key": "gin_dry_martini",
+      "name": "Dry Martini",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "gin",
+      "description": "Beefeater, Martini Bianco"
+    },
+    {
+      "key": "gin_green_chilli",
+      "name": "Green Chilli Pepper Gin",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "gin",
+      "description": "Bombay Sapphire, Ají Verde, Jugo de Limón, Goma"
+    },
+    {
+      "key": "gin_cynar_negroni",
+      "name": "Cynar Negroni",
+      "price": 6500,
+      "category": "cocteles",
+      "subcategory": "gin",
+      "description": "Gin Beefeater, Martini Rosso, Licor de Alcachofas Cynar"
+    },
+    {
+      "key": "gin_negroni",
+      "name": "Negroni",
+      "price": 6500,
+      "category": "cocteles",
+      "subcategory": "gin",
+      "description": "Gin Beefeater, Martini Rosso, Campari"
+    },
+    {
+      "key": "gin_summer",
+      "name": "Summer Gin",
+      "price": 6900,
+      "category": "cocteles",
+      "subcategory": "gin",
+      "description": "Gin, Pulpa de Frutilla y Frambuesa, Limón, Red Bull Sandía"
+    },
+    {
+      "key": "gin_tom_collins",
+      "name": "Tom Collins",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "gin",
+      "description": "Beefeater, Jugo Limón, Triple Sec, Soda"
+    },
+    {
+      "key": "gin_tropical",
+      "name": "Tropical Gin",
+      "price": 6900,
+      "category": "cocteles",
+      "subcategory": "gin",
+      "description": "Gin, Pulpa Maracuyá, Jugo de Limón, Red Bull Tropical"
+    },
+    {
+      "key": "tequila_margarita",
+      "name": "Tequila Margarita",
+      "price": 4900,
+      "category": "cocteles",
+      "subcategory": "tequila",
+      "description": "Tequila, Triple Sec, Jugo de Limón, Goma"
+    },
+    {
+      "key": "tequila_margarita_blue",
+      "name": "Tequila Margarita Blue",
+      "price": 4900,
+      "category": "cocteles",
+      "subcategory": "tequila",
+      "description": "Tequila, Blue Curacao, Jugo de Limón, Goma"
+    },
+    {
+      "key": "tequila_margarita_frutal",
+      "name": "Tequila Margarita Frutal",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "tequila",
+      "description": "Tequila, Fruta, Triple Sec, Limón, Goma"
+    },
+    {
+      "key": "mula_berlin",
+      "name": "Berlin Mule",
+      "price": 7500,
+      "category": "cocteles",
+      "subcategory": "mulas",
+      "description": "Jägermeister, Jengibre, Cerveza Rubia de Barril, Goma, Limón"
+    },
+    {
+      "key": "mula_chilean",
+      "name": "Chilean Mule",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "mulas",
+      "description": "Pisco Aba, Jengibre, Cerveza Rubia de Barril, Goma, Limón"
+    },
+    {
+      "key": "mula_hot",
+      "name": "Hot Mule",
+      "price": 6900,
+      "category": "cocteles",
+      "subcategory": "mulas",
+      "description": "Fireball Cinnamon Whisky, Jengibre, Cerveza Red Ale, Limón"
+    },
+    {
+      "key": "mula_london",
+      "name": "London Mule",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "mulas",
+      "description": "Gin, Jengibre, Cerveza Rubia de Barril, Goma, Limón"
+    },
+    {
+      "key": "mula_moscow",
+      "name": "Moscow Mule",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "mulas",
+      "description": "Stolichnaya, Jengibre, Cerveza Rubia de Barril, Goma, Limón"
+    },
+    {
+      "key": "mula_republica_andina",
+      "name": "La República Andina Mule",
+      "price": 7500,
+      "category": "cocteles",
+      "subcategory": "mulas",
+      "description": "Gin La República Andina, Jengibre, Cerveza Rubia de Barril, Goma, Limón"
+    },
+    {
+      "key": "clasico_adios_mf",
+      "name": "Adiós MF",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Ron Blanco, Tequila Silver, Gin, Vodka, Blue Curacao, Jugo de Limón, Goma, Sprite"
+    },
+    {
+      "key": "clasico_aperol_spritz",
+      "name": "Aperol Spritz",
+      "price": 6900,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Aperol, Espumante y Soda"
+    },
+    {
+      "key": "clasico_ramazzotti_spritz",
+      "name": "Ramazzotti Spritz",
+      "price": 6900,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Ramazzotti, Espumante y Soda"
+    },
+    {
+      "key": "clasico_campari_spritz",
+      "name": "Campari Spritz",
+      "price": 6900,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Campari, Espumante y Soda"
+    },
+    {
+      "key": "clasico_blue_hawaii",
+      "name": "Blue Hawaii",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Ron Blanco, Ron de Coco de la Casa, Piña, Blue Curacao, limón y crema"
+    },
+    {
+      "key": "clasico_caipirinha",
+      "name": "Caipirinha",
+      "price": 4500,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Cachaza, Limón Sutil, Goma"
+    },
+    {
+      "key": "clasico_clavo_oxidado",
+      "name": "Clavo Oxidado",
+      "price": 6500,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Ballantines, Drambui"
+    },
+    {
+      "key": "clasico_daiquiri_frutal",
+      "name": "Daiquiri Frutal",
+      "price": 4500,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Ron Blanco, Fruta, Jugo de Limón, Goma"
+    },
+    {
+      "key": "clasico_electric_lemonade",
+      "name": "Electric Lemonade",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Stolichnaya, Blue Curacao, Jugo de Limón, Goma, Sprite"
+    },
+    {
+      "key": "clasico_john_collins",
+      "name": "John Collins",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Johnnie Walker Red, Jugo Limón, Triple Sec, Soda"
+    },
+    {
+      "key": "clasico_long_island",
+      "name": "Long Island Ice Tea",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Ron Blanco, Tequila, Gin, Vodka, Triple Sec, Jugo de Limón, Coca Cola"
+    },
+    {
+      "key": "clasico_maracujack",
+      "name": "Maracujack",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Whisky, Maracuyá, Jarabe de Miel, Soda"
+    },
+    {
+      "key": "clasico_orgasmo",
+      "name": "Orgasmo",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Vodka Stolichnaya, Licor de Cacao, Amaretto, Crema, Goma"
+    },
+    {
+      "key": "clasico_pina_colada",
+      "name": "Piña Colada",
+      "price": 5500,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Ron Blanco, Ron de Coco, Jugo de Piña, Crema y Goma"
+    },
+    {
+      "key": "clasico_pina_colada_xl",
+      "name": "Piña Colada XL",
+      "price": 6500,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Ron Blanco, Ron de Coco, Jugo de Piña, Crema y Goma"
+    },
+    {
+      "key": "clasico_ruso_blanco",
+      "name": "Ruso Blanco",
+      "price": 6900,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Stolichnaya, Kahlua, Crema. Alérgenos: lactosa"
+    },
+    {
+      "key": "clasico_ruso_negro",
+      "name": "Ruso Negro",
+      "price": 5900,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Stolichnaya, Kahlua"
+    },
+    {
+      "key": "clasico_saint_germain_spritz",
+      "name": "Saint Germain Spritz",
+      "price": 7500,
+      "category": "cocteles",
+      "subcategory": "clasicos",
+      "description": "Licor de St. Germain, Espumante, Soda"
+    },
+    {
+      "key": "comb_pisco_gobernador_40",
+      "name": "El Gobernador 40°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 6500
+        },
+        {
+          "label": "XL",
+          "price": 7500
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_aba_40",
+      "name": "Aba 40°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 6500
+        },
+        {
+          "label": "XL",
+          "price": 5500
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_alto_carmen_35",
+      "name": "Alto del Carmen 35°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 4500
+        },
+        {
+          "label": "XL",
+          "price": 5500
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_alto_carmen_40",
+      "name": "Alto del Carmen 40°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 5900
+        },
+        {
+          "label": "XL",
+          "price": 4900
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_brujas_35",
+      "name": "Brujas de Salamanca 35°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 4900
+        },
+        {
+          "label": "XL",
+          "price": 5900
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_brujas_40",
+      "name": "Brujas de Salamanca 40°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 5500
+        },
+        {
+          "label": "XL",
+          "price": 6500
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_espiritu_andes_40",
+      "name": "Espíritu de Los Andes 40°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 7500
+        },
+        {
+          "label": "XL",
+          "price": 6500
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_gobernador_35",
+      "name": "El Gobernador 35°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 5500
+        },
+        {
+          "label": "XL",
+          "price": 6500
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_julia_40",
+      "name": "Juliá 40°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 6500
+        },
+        {
+          "label": "XL",
+          "price": 7500
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_los_nichos_35",
+      "name": "Los Nichos 35°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 5500
+        },
+        {
+          "label": "XL",
+          "price": 6500
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_los_nichos_40",
+      "name": "Los Nichos 40°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 6900
+        },
+        {
+          "label": "XL",
+          "price": 5900
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_mistral_35",
+      "name": "Mistral 35°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 4500
+        },
+        {
+          "label": "XL",
+          "price": 5500
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_mistral_40",
+      "name": "Mistral 40°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 5900
+        },
+        {
+          "label": "XL",
+          "price": 4900
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_mistral_nobel_40",
+      "name": "Mistral Nobel 40°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 6500
+        },
+        {
+          "label": "XL",
+          "price": 7500
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_monje_negro_3_anos_40",
+      "name": "Monje Negro 3 años 40°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 6500
+        },
+        {
+          "label": "XL",
+          "price": 7500
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_monje_negro_40",
+      "name": "Monje Negro 40°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 6900
+        },
+        {
+          "label": "XL",
+          "price": 5900
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_republicano_40",
+      "name": "Republicano 40° Añejado",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 5900
+        },
+        {
+          "label": "XL",
+          "price": 6900
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_tamay_reservado_40",
+      "name": "Tamay Reservado 40°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 6500
+        },
+        {
+          "label": "XL",
+          "price": 5500
+        }
+      ]
+    },
+    {
+      "key": "comb_pisco_wiluf_40",
+      "name": "Wilüf 40°",
+      "category": "combinados",
+      "subcategory": "pisco",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 6900
+        },
+        {
+          "label": "XL",
+          "price": 7900
+        }
+      ]
+    },
+    {
+      "key": "comb_ron_barcelo_anejo",
+      "name": "Barceló Añejo",
+      "category": "combinados",
+      "subcategory": "ron",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 4900
+        },
+        {
+          "label": "XL",
+          "price": 5900
+        }
+      ]
+    },
+    {
+      "key": "comb_ron_bacardi_sabores",
+      "name": "Bacardi Sabores",
+      "category": "combinados",
+      "subcategory": "ron",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 4900
+        },
+        {
+          "label": "XL",
+          "price": 5900
+        }
+      ]
+    },
+    {
+      "key": "comb_ron_havana_especial",
+      "name": "Havana Club Especial",
+      "category": "combinados",
+      "subcategory": "ron",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 4900
+        },
+        {
+          "label": "XL",
+          "price": 5900
+        }
+      ]
+    },
+    {
+      "key": "comb_ron_havana_reserva",
+      "name": "Havana Club Reserva",
+      "category": "combinados",
+      "subcategory": "ron",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 6500
+        },
+        {
+          "label": "XL",
+          "price": 7500
+        }
+      ]
+    },
+    {
+      "key": "comb_ron_havana_7_anos",
+      "name": "Havana Club 7 años",
+      "category": "combinados",
+      "subcategory": "ron",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 7900
+        },
+        {
+          "label": "XL",
+          "price": 8900
+        }
+      ]
+    },
+    {
+      "key": "comb_vodka_stolichnaya",
+      "name": "Stolichnaya",
+      "category": "combinados",
+      "subcategory": "vodka",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 4900
+        },
+        {
+          "label": "XL",
+          "price": 5900
+        }
+      ]
+    },
+    {
+      "key": "comb_vodka_absolut",
+      "name": "Absolut",
+      "category": "combinados",
+      "subcategory": "vodka",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 6500
+        },
+        {
+          "label": "XL",
+          "price": 7500
+        }
+      ]
+    },
+    {
+      "key": "comb_vodka_absolut_citron",
+      "name": "Absolut Citron",
+      "category": "combinados",
+      "subcategory": "vodka",
+      "description": "Combinado con bebida o tónica",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 6500
+        },
+        {
+          "label": "XL",
+          "price": 7500
+        }
+      ]
+    },
+    {
+      "key": "comb_gin_beefeater",
+      "name": "Beefeater",
+      "price": 6900,
+      "category": "combinados",
+      "subcategory": "gin_otros",
+      "description": "Combinado con tónica"
+    },
+    {
+      "key": "comb_gin_bombay_bramble",
+      "name": "Bombay Bramble",
+      "price": 6500,
+      "category": "combinados",
+      "subcategory": "gin_otros",
+      "description": "Combinado con tónica"
+    },
+    {
+      "key": "comb_gin_bombay_sapphire",
+      "name": "Bombay Sapphire",
+      "price": 6500,
+      "category": "combinados",
+      "subcategory": "gin_otros",
+      "description": "Combinado con tónica"
+    },
+    {
+      "key": "comb_gin_carpintero_negro",
+      "name": "Carpintero Negro",
+      "price": 6500,
+      "category": "combinados",
+      "subcategory": "gin_otros",
+      "description": "Combinado con tónica"
+    },
+    {
+      "key": "comb_gin_pajarillo_amarillo",
+      "name": "Pajarillo Amarillo",
+      "price": 6900,
+      "category": "combinados",
+      "subcategory": "gin_otros",
+      "description": "Combinado con tónica"
+    },
+    {
+      "key": "comb_gin_provincia_mandarina",
+      "name": "Provincia Mandarina",
+      "price": 7500,
+      "category": "combinados",
+      "subcategory": "gin_otros",
+      "description": "Combinado con tónica"
+    },
+    {
+      "key": "comb_gin_provincia_patagonia",
+      "name": "Provincia Patagonia",
+      "price": 8500,
+      "category": "combinados",
+      "subcategory": "gin_otros",
+      "description": "Combinado con tónica"
+    },
+    {
+      "key": "comb_gin_republica_andina",
+      "name": "República Andina",
+      "price": 7500,
+      "category": "combinados",
+      "subcategory": "gin_otros",
+      "description": "Combinado con tónica"
+    },
+    {
+      "key": "comb_gin_republica_amazonica",
+      "name": "República Amazónica",
+      "price": 7500,
+      "category": "combinados",
+      "subcategory": "gin_otros",
+      "description": "Combinado con tónica"
+    },
+    {
+      "key": "comb_gin_tanqueray",
+      "name": "Tanqueray",
+      "price": 6900,
+      "category": "combinados",
+      "subcategory": "gin_otros",
+      "description": "Combinado con tónica"
+    },
+    {
+      "key": "comb_gin_ramazzotti_violetto_tonic",
+      "name": "Ramazzotti Violetto Tonic",
+      "price": 6200,
+      "category": "combinados",
+      "subcategory": "gin_otros",
+      "description": "Ramazzotti Violetto con tónica"
+    },
+    {
+      "key": "sin_alcohol_agua",
+      "name": "Agua Mineral (500 ml)",
+      "price": 1500,
+      "category": "sin_alcohol"
+    },
+    {
+      "key": "sin_alcohol_bebida",
+      "name": "Bebidas (350 ml)",
+      "price": 3000,
+      "category": "sin_alcohol"
+    },
+    {
+      "key": "sin_alcohol_limonada",
+      "name": "Limonadas (Menta, Jengibre, Albahaca)",
+      "price": 3500,
+      "category": "sin_alcohol"
+    },
+    {
+      "key": "sin_alcohol_jugo",
+      "name": "Jugos",
+      "price": 3900,
+      "category": "sin_alcohol"
+    },
+    {
+      "key": "sin_alcohol_mojito",
+      "name": "Mojito Sin Alcohol (Menta, Albahaca)",
+      "price": 3500,
+      "category": "sin_alcohol"
+    },
+    {
+      "key": "sin_alcohol_mojito_frutal",
+      "name": "Mojitos Frutales Sin Alcohol",
+      "price": 4500,
+      "category": "sin_alcohol"
+    },
+    {
+      "key": "sin_alcohol_red_bull",
+      "name": "Red Bull",
+      "price": 3900,
+      "category": "sin_alcohol"
+    },
+    {
+      "key": "sin_alcohol_schlappe_seppel",
+      "name": "Cerveza Schlappe Seppel Sin Alcohol (500 ml)",
+      "price": 4900,
+      "category": "sin_alcohol"
+    },
+    {
+      "key": "vino_chardonnay_adobe",
+      "name": "Chardonnay (orgánico) Adobe - 750cc",
+      "price": 13900,
+      "category": "vinos"
+    },
+    {
+      "key": "vino_sauvignon_blanc_adobe",
+      "name": "Sauv. Blanc Res. (orgánico) Adobe - 750cc",
+      "price": 13900,
+      "category": "vinos"
+    },
+    {
+      "key": "vino_carmenere_casillero",
+      "name": "Carmenere Casillero del D. - 750cc",
+      "price": 10900,
+      "category": "vinos"
+    },
+    {
+      "key": "vino_merlot_casillero",
+      "name": "Merlot Casillero del D. - 750cc",
+      "price": 10900,
+      "category": "vinos"
+    },
+    {
+      "key": "vino_carmenere_res_privada",
+      "name": "Carmenere Res. Privada Casillero del D. - 750cc",
+      "price": 14900,
+      "category": "vinos"
+    },
+    {
+      "key": "vino_chardonnay_viognier_oveja",
+      "name": "Chardonnay Viognier Oveja Negra - 750cc",
+      "price": 10900,
+      "category": "vinos"
+    },
+    {
+      "key": "vino_carmenere_merlot_oveja",
+      "name": "Carmenere - Merlot Oveja Negra - 750cc",
+      "price": 10900,
+      "category": "vinos"
+    },
+    {
+      "key": "vino_cabernet_syrah_oveja",
+      "name": "Cabernet - Syrah Oveja Negra - 750cc",
+      "price": 10900,
+      "category": "vinos"
+    },
+    {
+      "key": "vino_sauvignon_blanc_leyda",
+      "name": "Sauv. Blanc Reserva Leyda - 750cc",
+      "price": 14900,
+      "category": "vinos"
+    },
+    {
+      "key": "vino_carmenere_las_mulas",
+      "name": "Carmenere (orgánico) Las Mulas - 750cc",
+      "price": 14900,
+      "category": "vinos"
+    },
+    {
+      "key": "vino_cabernet_las_mulas",
+      "name": "Cabernet Sauv. (orgánico) Las Mulas - 750cc",
+      "price": 14900,
+      "category": "vinos"
+    },
+    {
+      "key": "vino_borgona_jarra",
+      "name": "Borgoña Jarra 1.300cc",
+      "price": 11900,
+      "category": "vinos"
+    },
+    {
+      "key": "vino_sangria_jarra",
+      "name": "Sangría UK Jarra 1.300cc",
+      "price": 11900,
+      "category": "vinos"
+    },
+    {
+      "key": "whisky_ballantines",
+      "name": "Ballantine's",
+      "price": 4000,
+      "category": "whisky"
+    },
+    {
+      "key": "whisky_chivas_12",
+      "name": "Chivas Regal 12 años",
+      "price": 7900,
+      "category": "whisky"
+    },
+    {
+      "key": "whisky_fireball",
+      "name": "Fireball Cinnamon",
+      "price": 5000,
+      "category": "whisky"
+    },
+    {
+      "key": "whisky_jack_daniels",
+      "name": "Jack Daniels",
+      "price": 7500,
+      "category": "whisky"
+    },
+    {
+      "key": "whisky_jack_daniels_honey",
+      "name": "Jack Daniels Honey",
+      "price": 7500,
+      "category": "whisky"
+    },
+    {
+      "key": "whisky_jameson",
+      "name": "Jameson",
+      "price": 6500,
+      "category": "whisky"
+    },
+    {
+      "key": "whisky_jim_beam_black",
+      "name": "Jim Beam Black",
+      "price": 6900,
+      "category": "whisky"
+    },
+    {
+      "key": "whisky_johnnie_walker_black",
+      "name": "Johnnie Walker Black",
+      "price": 7900,
+      "category": "whisky"
+    },
+    {
+      "key": "whisky_johnnie_walker_red",
+      "name": "Johnnie Walker Red",
+      "price": 4000,
+      "category": "whisky"
+    },
+    {
+      "key": "cerv_loa_entre_nubes",
+      "name": "LOA - Entre Nubes (Pale Lager)",
+      "category": "cervezas",
+      "subcategory": "barril",
+      "description": "Ligera, sencilla de tomar y con una espuma de nube perfecta. IBU: 16 ABV: 4.8%",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 4500
+        },
+        {
+          "label": "Promoción",
+          "price": 3500
+        }
+      ]
+    },
+    {
+      "key": "cerv_bundor_ninfa",
+      "name": "BUNDOR - Ninfa (Irish Red Ale)",
+      "category": "cervezas",
+      "subcategory": "barril",
+      "description": "Color ámbar intenso, aroma a caramelo y toffe. IBU: 20 ABV: 6.0%",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 4500
+        },
+        {
+          "label": "Promoción",
+          "price": 3500
+        }
+      ]
+    },
+    {
+      "key": "cerv_bundor_belzeboo",
+      "name": "BUNDOR - Belzeboo (Imperial Stout)",
+      "category": "cervezas",
+      "subcategory": "barril",
+      "description": "Color Negro, notas a cacao, café, ciruela y frutos secos. IBU: 40 ABV: 11.0%",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 5500
+        },
+        {
+          "label": "Promoción",
+          "price": 4500
+        }
+      ]
+    },
+    {
+      "key": "cerv_altamira_amber_ale",
+      "name": "ALTAMIRA - Amber Ale",
+      "category": "cervezas",
+      "subcategory": "barril",
+      "description": "Color cobrizo/marrón, toques herbales, cítricos y caramelizados. IBU: 21 ABV: 5.3%",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 4500
+        },
+        {
+          "label": "Promoción",
+          "price": 3500
+        }
+      ]
+    },
+    {
+      "key": "cerv_coda_cream_ale",
+      "name": "CODA - Cream Ale",
+      "category": "cervezas",
+      "subcategory": "barril",
+      "description": "Limpia, bien atenuada y sabrosa. Refrescante. IBU: 18 ABV: 4.7%",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 4200
+        },
+        {
+          "label": "Promoción",
+          "price": 3000
+        }
+      ]
+    },
+    {
+      "key": "cerv_tamango_corta_corriente",
+      "name": "TAMANGO - Corta Corriente (Hazy IPA)",
+      "category": "cervezas",
+      "subcategory": "barril",
+      "description": "Sin pasteurizar y sin filtrar. Aromas a mango, piña y maracuyá. IBU: -- ABV: 6.0%",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 6500
+        },
+        {
+          "label": "Promoción",
+          "price": 5500
+        }
+      ]
+    },
+    {
+      "key": "cerv_jester_retorno_ibu",
+      "name": "JESTER - Retorno del IBU (American IPA)",
+      "category": "cervezas",
+      "subcategory": "barril",
+      "description": "Súper lupulada, firme amargor, aromas tropicales y cítricos. IBU: 80 ABV: 6.2%",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 5500
+        },
+        {
+          "label": "Promoción",
+          "price": 4500
+        }
+      ]
+    },
+    {
+      "key": "cerv_jester_mornin",
+      "name": "JESTER - Mornin'! (Breakfast Stout)",
+      "category": "cervezas",
+      "subcategory": "barril",
+      "description": "Hecha con avena y café de especialidad, notas tostadas y frutales. IBU: 40 ABV: 6.0%",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 5500
+        },
+        {
+          "label": "Promoción",
+          "price": 4500
+        }
+      ]
+    },
+    {
+      "key": "cerv_bundor_troll",
+      "name": "BUNDOR - Troll (Oatmeal Stout)",
+      "category": "cervezas",
+      "subcategory": "barril",
+      "description": "Color marrón rubí, aroma a cacao y cereal, sedosa en boca. IBU: 33 ABV: 5.8%",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 4500
+        },
+        {
+          "label": "Promoción",
+          "price": 3500
+        }
+      ]
+    },
+    {
+      "key": "cerv_tubinger_irish_red",
+      "name": "TUBINGER - IRISH RED ALE",
+      "category": "cervezas",
+      "subcategory": "barril",
+      "description": "Color rojizo intenso, notas a frutos rojos y caramelo. Premiada en World Beer Awards 2025. IBU: 27 ABV: 5.5%",
+      "variants": [
+        {
+          "label": "Normal",
+          "price": 4200
+        },
+        {
+          "label": "Promoción",
+          "price": 3200
+        }
+      ]
+    },
+    {
+      "key": "cerv_granizo_bomba_6",
+      "name": "GRANIZO - Bomba 6 (Triple Juicy Kveik IPA)",
+      "price": 6500,
+      "category": "cervezas",
+      "subcategory": "latas",
+      "description": "Versión extrema, alta graduación alcohólica, lúpulos Citra, Simcoe, Sabro y Centennial. IBU: 80 ABV: 9.6%"
+    },
+    {
+      "key": "cerv_granizo_ira",
+      "name": "GRANIZO - IRA! (India Red Ale)",
+      "price": 5900,
+      "category": "cervezas",
+      "subcategory": "latas",
+      "description": "Lúpulos cítricos, maltas caramelo y aromático romero. IBU: 65 ABV: 7%"
+    }
+  ],
+  "options": [
+    {
+      "key": "opt_cebolla_morada",
+      "name": "Cebolla Morada",
+      "price": 500,
+      "sort_order": 1,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_tomate",
+      "name": "Tomate",
+      "price": 500,
+      "sort_order": 2,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_rucula",
+      "name": "Rúcula",
+      "price": 500,
+      "sort_order": 3,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_aceitunas",
+      "name": "Aceitunas",
+      "price": 1000,
+      "sort_order": 4,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_cebolla_caramelizada",
+      "name": "Cebolla Caramelizada",
+      "price": 1000,
+      "sort_order": 5,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_choclo",
+      "name": "Choclo",
+      "price": 1000,
+      "sort_order": 6,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_albahaca",
+      "name": "Albahaca",
+      "price": 1500,
+      "sort_order": 7,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_pimenton",
+      "name": "Pimentón",
+      "price": 1500,
+      "sort_order": 8,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_tomate_cherry",
+      "name": "Tomate Cherry",
+      "price": 1500,
+      "sort_order": 9,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_champinones",
+      "name": "Champiñones",
+      "price": 2000,
+      "sort_order": 10,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_cheddar",
+      "name": "Cheddar",
+      "price": 2000,
+      "sort_order": 11,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_pesto",
+      "name": "Pesto",
+      "price": 2000,
+      "sort_order": 12,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_queso_azul",
+      "name": "Queso Azul",
+      "price": 2000,
+      "sort_order": 13,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_pollo",
+      "name": "Pollo",
+      "price": 2500,
+      "sort_order": 14,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_queso_cabra",
+      "name": "Queso de Cabra",
+      "price": 2500,
+      "sort_order": 15,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_tocino",
+      "name": "Tocino",
+      "price": 3500,
+      "sort_order": 16,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_pepperoni",
+      "name": "Pepperoni",
+      "price": 3500,
+      "sort_order": 17,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_mechada",
+      "name": "Mechada",
+      "price": 3500,
+      "sort_order": 18,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_camarones",
+      "name": "Camarones",
+      "price": 5900,
+      "sort_order": 19,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_jamon_serrano",
+      "name": "Jamón Serrano",
+      "price": 5900,
+      "sort_order": 20,
+      "category_scope": "pizzas"
+    },
+    {
+      "key": "opt_salmon_ahumado",
+      "name": "Salmón Ahumado",
+      "price": 5900,
+      "sort_order": 21,
+      "category_scope": "pizzas"
+    }
+  ],
+  "promotions": [
+    {
+      "key": "happy_intenso",
+      "name": "Happy Intenso 2x1",
+      "valid_days": [
+        1,
+        2,
+        3
+      ],
+      "valid_from": "17:00",
+      "valid_to": "18:30",
+      "display_text": "HAPPY INTENSO 2x1 (Lun-Mié 17:00-18:30): Caipiriñas $4.500, Mojitos $4.900, Chardonnay Sour $4.900, Mojitos Frutales $5.500, Daiquiris Frutales $4.500, Piña Colada $5.500, Dame un Beso $5.500, Pisco Sour $4.900, Gin Passion $5.500, Tequila Margarita $4.900, Kashmir $5.500, Schop* $4.200",
+      "sort_order": 1,
+      "items": [
+        {
+          "item_key": "clasico_caipirinha",
+          "promotion_price": 4500
+        },
+        {
+          "item_key": "mojito_tradicional",
+          "promotion_price": 4900
+        },
+        {
+          "item_key": "sour_chardonnay",
+          "promotion_price": 4900
+        },
+        {
+          "item_key": "mojito_frutal",
+          "promotion_price": 5500
+        },
+        {
+          "item_key": "clasico_daiquiri_frutal",
+          "promotion_price": 4500
+        },
+        {
+          "item_key": "clasico_pina_colada",
+          "promotion_price": 5500
+        },
+        {
+          "item_key": "coctel_dame_un_beso",
+          "promotion_price": 5500
+        },
+        {
+          "item_key": "sour_pisco",
+          "promotion_price": 4900
+        },
+        {
+          "item_key": "coctel_gin_passion",
+          "promotion_price": 5500
+        },
+        {
+          "item_key": "tequila_margarita",
+          "promotion_price": 4900
+        },
+        {
+          "item_key": "coctel_kashmir",
+          "promotion_price": 5500
+        },
+        {
+          "item_key": "cerv_coda_cream_ale",
+          "promotion_price": 4200
+        }
+      ],
+      "promotion_type": "2x1",
+      "terms": "Lunes a Miércoles, de 17:00 a 18:30 hrs."
+    },
+    {
+      "key": "2x7000",
+      "name": "2x$7.000",
+      "price": 7000,
+      "valid_days": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "valid_from": "",
+      "valid_to": "",
+      "display_text": "2x$7.000 (Lun-Jue sin tope; Vie y víspera festivo hasta 20:00): Caipiriñas, Daiquiris Frutales, Mojitos (Menta), Todos los Schop* — Por sólo $3.900: Borgoña Copa, Chardonnay Sour, Mojito Huesillos, Pisco Sour, Sangría Copa, Tequila Margarita, Piscolones y Roncolones (con Coca Cola o Sprite)",
+      "sort_order": 2,
+      "items": [
+        {
+          "item_key": "clasico_caipirinha"
+        },
+        {
+          "item_key": "clasico_daiquiri_frutal"
+        },
+        {
+          "item_key": "mojito_tradicional"
+        },
+        {
+          "item_key": "cerv_coda_cream_ale"
+        },
+        {
+          "item_key": "sour_chardonnay",
+          "promotion_price": 3900
+        },
+        {
+          "item_key": "mojito_huesillos",
+          "promotion_price": 3900
+        },
+        {
+          "item_key": "sour_pisco",
+          "promotion_price": 3900
+        },
+        {
+          "item_key": "tequila_margarita",
+          "promotion_price": 3900
+        }
+      ],
+      "promotion_type": "fixed_price",
+      "terms": "Lunes a Jueves, sin tope horario. Viernes, sábados y víspera de Festivo, hasta las 20:00 hrs."
+    },
+    {
+      "key": "2x9000",
+      "name": "2x$9.000",
+      "price": 9000,
+      "valid_days": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "valid_from": "",
+      "valid_to": "",
+      "display_text": "2x$9.000 (Lun-Jue sin tope; Vie y víspera festivo hasta 20:00): Bitter Sweet, Dame un Beso, Demórame Otra Vez, Gin Passion, London/Moscow Mule, Maracujack, Mojito Cerveza, Mojitos Frutales, Piña Colada, Say My Name, Sweet Dreams — Por sólo $5.500: Aperol/Campari/Ramazzotti Spritz, Gintonic Beefeater/Bombay Sapphire, Tropical Gin/Summer Gin — Por sólo $7.900: Jarra Borgoña, Jarra de Sangría",
+      "sort_order": 3,
+      "items": [
+        {
+          "item_key": "coctel_bitter_sweet"
+        },
+        {
+          "item_key": "coctel_dame_un_beso"
+        },
+        {
+          "item_key": "coctel_demorame"
+        },
+        {
+          "item_key": "coctel_gin_passion"
+        },
+        {
+          "item_key": "mula_london"
+        },
+        {
+          "item_key": "mula_moscow"
+        },
+        {
+          "item_key": "clasico_maracujack"
+        },
+        {
+          "item_key": "mojito_cerveza"
+        },
+        {
+          "item_key": "mojito_frutal"
+        },
+        {
+          "item_key": "clasico_pina_colada"
+        },
+        {
+          "item_key": "coctel_say_my_name"
+        },
+        {
+          "item_key": "coctel_sweet_dreams"
+        },
+        {
+          "item_key": "clasico_aperol_spritz",
+          "promotion_price": 5500
+        },
+        {
+          "item_key": "clasico_campari_spritz",
+          "promotion_price": 5500
+        },
+        {
+          "item_key": "clasico_ramazzotti_spritz",
+          "promotion_price": 5500
+        },
+        {
+          "item_key": "vino_borgona_jarra",
+          "promotion_price": 7900
+        },
+        {
+          "item_key": "vino_sangria_jarra",
+          "promotion_price": 7900
+        }
+      ],
+      "promotion_type": "fixed_price",
+      "terms": "Lunes a Jueves, sin tope horario. Viernes, sábados y víspera de Festivo, hasta las 20:00 hrs."
+    }
+  ]
+}

@@ -1,0 +1,153 @@
+{
+  "catalog_items": [
+    {
+      "key": "completo_normal",
+      "name": "Completo Normal (carne)",
+      "price": 3700,
+      "category": "completos",
+      "subcategory": "carne",
+      "description": "Completo tradicional con carne"
+    },
+    {
+      "key": "completo_gigante",
+      "name": "Completo Gigante (carne)",
+      "price": 4800,
+      "category": "completos",
+      "subcategory": "carne",
+      "description": "Completo gigante con carne"
+    },
+    {
+      "key": "completo_italiano",
+      "name": "Completo Italiano",
+      "price": 3700,
+      "category": "completos",
+      "subcategory": "italiano",
+      "description": "Completo italiano con palta, tomate y mayo"
+    },
+    {
+      "key": "completo_vienesa",
+      "name": "Completo Vienesa",
+      "price": 3200,
+      "category": "completos",
+      "subcategory": "vienesa",
+      "description": "Completo con vienesa"
+    },
+    {
+      "key": "completo_vienesa_gigante",
+      "name": "Vienesa Gigante Italiana",
+      "price": 3400,
+      "category": "completos",
+      "subcategory": "vienesa",
+      "description": "Vienesa gigante con palta, tomate y mayo"
+    },
+    {
+      "key": "completo_vienesa_vegano",
+      "name": "Completo Vienesa Vegano",
+      "price": 4000,
+      "category": "completos",
+      "subcategory": "vegano",
+      "description": "Completo vegano con vienesa vegetal"
+    },
+    {
+      "key": "completo_vienesa_vegano_gigante",
+      "name": "Vienesa Vegana Gigante",
+      "price": 4800,
+      "category": "completos",
+      "subcategory": "vegano",
+      "description": "Vienesa vegana gigante"
+    },
+    {
+      "key": "as_normal",
+      "name": "AS Normal",
+      "price": 3700,
+      "category": "sandwiches",
+      "description": "Sandwich AS normal"
+    },
+    {
+      "key": "as_gigante",
+      "name": "AS Gigante",
+      "price": 4800,
+      "category": "sandwiches",
+      "description": "Sandwich AS gigante"
+    },
+    {
+      "key": "chorrillana",
+      "name": "Chorrillana",
+      "price": 8900,
+      "category": "platos",
+      "description": "Chorrillana tradicional"
+    },
+    {
+      "key": "salchipapas_individual",
+      "name": "Salchipapas Individual",
+      "price": 2800,
+      "category": "platos",
+      "subcategory": "salchipapas",
+      "description": "Porcion individual de salchipapas"
+    },
+    {
+      "key": "salchipapas_mediana",
+      "name": "Salchipapas Mediana",
+      "price": 5100,
+      "category": "platos",
+      "subcategory": "salchipapas",
+      "description": "Porcion mediana de salchipapas"
+    },
+    {
+      "key": "papas_individual",
+      "name": "Papas Fritas Individual",
+      "price": 2100,
+      "category": "acompanamientos",
+      "description": "Papas fritas individuales"
+    },
+    {
+      "key": "papas_mediana",
+      "name": "Papas Fritas Mediana",
+      "price": 3700,
+      "category": "acompanamientos",
+      "description": "Papas fritas medianas"
+    },
+    {
+      "key": "coca_lata",
+      "name": "Coca Cola lata",
+      "price": 1500,
+      "category": "bebidas",
+      "subcategory": "con_gas",
+      "description": "Lata 350ml"
+    },
+    {
+      "key": "coca_1_5l",
+      "name": "Coca Cola 1.5 Lts",
+      "price": 3000,
+      "category": "bebidas",
+      "subcategory": "con_gas",
+      "description": "Botella 1.5L"
+    },
+    {
+      "key": "sprite_lata",
+      "name": "Sprite lata",
+      "price": 1500,
+      "category": "bebidas",
+      "subcategory": "con_gas",
+      "description": "Lata 350ml"
+    },
+    {
+      "key": "fanta_lata",
+      "name": "Fanta lata",
+      "price": 1500,
+      "category": "bebidas",
+      "subcategory": "con_gas",
+      "description": "Lata 350ml"
+    },
+    {
+      "key": "agua",
+      "name": "Agua mineral",
+      "price": 1200,
+      "category": "bebidas",
+      "subcategory": "sin_gas",
+      "description": "Botella 500ml"
+    }
+  ],
+  "options": [],
+  "promotions": []
+}

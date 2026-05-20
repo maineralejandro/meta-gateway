@@ -27,31 +27,31 @@ def tokenize(text: str) -> list[str]:
 def _build_searchable_text(item: dict[str, Any]) -> str:
     parts = [item.get("name", "")]
     cat = item.get("category")
-    if cat:
+    sub = item.get("subcategory")
+    if cat and sub:
+        parts.append(f"{cat} {sub}")
+    elif cat:
         parts.append(cat)
+    if sub:
+        parts.append(sub)
     desc = item.get("description")
     if desc:
         parts.append(desc)
     size = item.get("size")
     if size:
         parts.append(size)
-        parts.append(size)
-    protein = item.get("protein")
-    if protein:
-        parts.append(protein)
-        parts.append(protein)
+    specs = item.get("specifications")
+    if specs:
+        parts.append(specs)
     tags = item.get("tags")
     if isinstance(tags, list):
         parts.extend(tags)
-    conditions = item.get("conditions")
-    if conditions:
-        parts.append(conditions)
     return " ".join(filter(None, parts))
 
 
-class MenuSearch:
-    def __init__(self, menu: dict[str, dict[str, Any]]) -> None:
-        self._menu = menu
+class CatalogSearch:
+    def __init__(self, catalog: dict[str, dict[str, Any]]) -> None:
+        self._catalog = catalog
         self._keys: list[str] = []
         self._docs: list[str] = []
         self._bm25: BM25Okapi | None = None
@@ -59,13 +59,13 @@ class MenuSearch:
 
     @property
     def needs_search(self) -> bool:
-        return len(self._menu) > SEARCH_THRESHOLD
+        return len(self._catalog) > SEARCH_THRESHOLD
 
     def build_index(self) -> None:
         self._keys = []
         self._docs = []
         self._categories = {}
-        for key, item in sorted(self._menu.items()):
+        for key, item in sorted(self._catalog.items()):
             self._keys.append(key)
             self._docs.append(_build_searchable_text(item))
             cat = item.get("category", "general")
@@ -85,7 +85,7 @@ class MenuSearch:
                 cat_data["min_price"] = 0
         tokenized = [tokenize(doc) for doc in self._docs]
         self._bm25 = BM25Okapi(tokenized)
-        logger.info("menu_search_index_built", items=len(self._keys), categories=len(self._categories))
+        logger.info("catalog_search_index_built", items=len(self._keys), categories=len(self._categories))
 
     def search(self, query: str, top_k: int = 5, min_score: float = 0.01) -> list[dict[str, Any]]:
         if not self._bm25:
@@ -100,13 +100,13 @@ class MenuSearch:
         results = []
         for idx in top_indices:
             key = self._keys[idx]
-            item = self._menu[key]
+            item = self._catalog[key]
             result: dict[str, Any] = {
                 "item_key": key,
                 "name": item.get("name", key),
                 "price": item.get("price", 0),
             }
-            for field in ("category", "description", "size", "protein", "conditions"):
+            for field in ("category", "subcategory", "description", "size", "specifications"):
                 if field in item:
                     result[field] = item[field]
             if "tags" in item:
@@ -120,14 +120,14 @@ class MenuSearch:
     def get_items_by_category(self, category: str) -> list[dict[str, Any]]:
         results = []
         for key in self._keys:
-            item = self._menu[key]
+            item = self._catalog[key]
             if item.get("category", "general") == category:
                 result: dict[str, Any] = {
                     "item_key": key,
                     "name": item.get("name", key),
                     "price": item.get("price", 0),
                 }
-                for field in ("description", "size", "protein", "conditions"):
+                for field in ("subcategory", "description", "size", "specifications"):
                     if field in item:
                         result[field] = item[field]
                 if "tags" in item:
