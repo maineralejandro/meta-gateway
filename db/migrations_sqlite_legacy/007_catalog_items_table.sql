@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS catalog_items (
+    key TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    price INTEGER NOT NULL,
+    category TEXT NOT NULL DEFAULT 'general',
+    is_available INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

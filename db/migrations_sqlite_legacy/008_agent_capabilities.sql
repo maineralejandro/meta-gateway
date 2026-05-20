@@ -14,4 +14,4 @@ CREATE INDEX IF NOT EXISTS idx_agent_capabilities_agent ON agent_capabilities(ag
 CREATE INDEX IF NOT EXISTS idx_agent_capabilities_active ON agent_capabilities(agent_id, is_active);
 
 INSERT INTO agent_capabilities (agent_id, capability_name, is_active, config_json)
-SELECT id, 'order', 1, '{}' FROM agents;
+SELECT id, 'cart', 1, '{}' FROM agents;

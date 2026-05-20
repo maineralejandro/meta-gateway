@@ -1,0 +1,4 @@
+ALTER TABLE catalog_items ADD COLUMN description TEXT NOT NULL DEFAULT '';
+ALTER TABLE catalog_items ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE catalog_items ADD COLUMN size TEXT NOT NULL DEFAULT '';
+ALTER TABLE catalog_items ADD COLUMN specifications TEXT NOT NULL DEFAULT '';

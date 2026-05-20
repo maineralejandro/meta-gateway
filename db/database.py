@@ -1,11 +1,11 @@
-import asyncio
-import os
 from pathlib import Path
 from typing import Any
 
-import aiosqlite
+import asyncpg
+import structlog
 
 from core.config import settings
+from db.engine import close_pool, create_pool, get_pool
 from db.models import (
     Agent,
     AgentCapability,
@@ -26,95 +26,73 @@ from db.repositories.agent import (
 )
 from db.repositories.business import (
     AppointmentRepository,
+    CartRepository,
+    CatalogRepository,
     LeadRepository,
     MembershipRepository,
-    MenuRepository,
-    OrderRepository,
+    OptionRepository,
     PlanRepository,
+    PromotionRepository,
+    VariantRepository,
 )
 from db.repositories.conversation import ConversationRepository, MessageRepository
 from db.repositories.memory import MemoryRepository
 from db.repositories.session import SessionRepository, TurnRepository
 from db.repositories.trace import TraceRepository
 
-SCHEMA_PATH = Path(__file__).parent / "schema.sql"
+logger = structlog.get_logger()
 
 
 class Database:
     def __init__(self) -> None:
-        self._conn: aiosqlite.Connection | None = None
-        self._init_lock = asyncio.Lock()
+        self.conversations = ConversationRepository()
+        self.messages = MessageRepository()
+        self.agents = AgentRepository()
+        self.agent_decisions = AgentDecisionRepository()
+        self.agent_capabilities = AgentCapabilityRepository()
+        self.agent_templates = AgentTemplateRepository()
+        self.memory = MemoryRepository()
+        self.sessions = SessionRepository()
+        self.turns = TurnRepository()
+        self.traces = TraceRepository()
+        self.carts = CartRepository()
+        self.catalog = CatalogRepository()
+        self.variants = VariantRepository()
+        self.options = OptionRepository()
+        self.promotions = PromotionRepository()
+        self.appointments = AppointmentRepository()
+        self.memberships = MembershipRepository()
+        self.plans = PlanRepository()
+        self.leads = LeadRepository()
 
-        self.conversations = ConversationRepository(self._get_conn)
-        self.messages = MessageRepository(self._get_conn)
-        self.agents = AgentRepository(self._get_conn)
-        self.agent_decisions = AgentDecisionRepository(self._get_conn)
-        self.agent_capabilities = AgentCapabilityRepository(self._get_conn)
-        self.agent_templates = AgentTemplateRepository(self._get_conn)
-        self.memory = MemoryRepository(self._get_conn)
-        self.sessions = SessionRepository(self._get_conn)
-        self.turns = TurnRepository(self._get_conn)
-        self.traces = TraceRepository(self._get_conn)
-        self.orders = OrderRepository(self._get_conn)
-        self.menus = MenuRepository(self._get_conn)
-        self.appointments = AppointmentRepository(self._get_conn)
-        self.memberships = MembershipRepository(self._get_conn)
-        self.plans = PlanRepository(self._get_conn)
-        self.leads = LeadRepository(self._get_conn)
-
-    async def _get_conn(self) -> aiosqlite.Connection:
-        if self._conn is not None:
-            return self._conn
-        async with self._init_lock:
-            if self._conn is not None:
-                return self._conn
-            os.makedirs(settings.DB_DIR, exist_ok=True)
-            self._conn = await aiosqlite.connect(settings.DB_PATH)
-            self._conn.row_factory = aiosqlite.Row
-            await self._conn.execute("PRAGMA journal_mode=WAL")
-            await self._conn.execute("PRAGMA foreign_keys=ON")
-            await self._conn.execute("PRAGMA busy_timeout=5000")
-            return self._conn
-
-    async def execute(self, query: str, params: tuple[Any, ...] = ()) -> None:
-        conn = await self._get_conn()
-        await conn.execute(query, params)
+    async def execute(self, query: str, *args: Any) -> None:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(query, *args)
 
     async def executemany(self, query: str, params: list[tuple[Any, ...]]) -> None:
-        conn = await self._get_conn()
-        await conn.executemany(query, params)
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.executemany(query, params)
 
-    async def fetchone(self, query: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
-        conn = await self._get_conn()
-        cursor = await conn.execute(query, params)
-        return await cursor.fetchone()
+    async def fetchone(self, query: str, *args: Any) -> asyncpg.Record | None:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            return await conn.fetchrow(query, *args)
 
-    async def fetchall(self, query: str, params: tuple[Any, ...] = ()) -> list[aiosqlite.Row]:
-        conn = await self._get_conn()
-        cursor = await conn.execute(query, params)
-        rows = await cursor.fetchall()
-        return list(rows)
+    async def fetchall(self, query: str, *args: Any) -> list[asyncpg.Record]:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            return await conn.fetch(query, *args)  # type: ignore[no-any-return]
 
     async def commit(self) -> None:
-        if self._conn:
-            await self._conn.commit()
+        pass
 
     async def execute_transaction(self, operations: list[tuple[str, tuple[Any, ...]]]) -> None:
-        conn = await self._get_conn()
-        try:
-            await conn.execute("BEGIN")
-            for query, params in operations:
-                await conn.execute(query, params)
-            await conn.execute("COMMIT")
-        except Exception:
-            await conn.execute("ROLLBACK")
-            raise
-
-    # -----------------------------------------------------------------------
-    # BACKWARD-COMPATIBLE DELEGATES
-    # All legacy method signatures are preserved. Each delegates to the
-    # appropriate repository so callers don't need to change yet.
-    # -----------------------------------------------------------------------
+        pool = await get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            for query, args in operations:
+                await conn.execute(query, *args)
 
     async def get_conversation(self, phone: str) -> Conversation | None:
         return await self.conversations.get(phone)
@@ -183,15 +161,6 @@ class Database:
             phone, direction, source, text, session_id, media_type, media_url, meta_message_id, correlation_id,
         )
 
-    async def save_order(self, phone: str, items_json: str, total: int) -> None:
-        return await self.orders.save(phone, items_json, total)
-
-    async def load_order(self, phone: str) -> tuple[str, int] | None:
-        return await self.orders.load(phone)
-
-    async def delete_order(self, phone: str) -> None:
-        return await self.orders.delete(phone)
-
     async def escalate_conversation(
         self, phone: str, sentiment_score: float, confidence: float, reason: str
     ) -> None:
@@ -205,19 +174,70 @@ class Database:
     async def increment_session_message_count(self, session_id: str) -> None:
         return await self.sessions.increment_message_count(session_id)
 
-    async def load_menu_items(self) -> list[dict[str, Any]]:
-        return await self.menus.load_items()
+    async def load_catalog_items(self) -> list[dict[str, Any]]:
+        return await self.catalog.load_items()
 
-    async def upsert_menu_item(
+    async def upsert_catalog_item(
         self, key: str, name: str, price: int, category: str = "general",
         is_available: bool = True, sort_order: int = 0,
         description: str = "", tags: str = "[]", size: str = "",
-        protein: str = "", conditions: str = "",
+        specifications: str = "",
+        subcategory: str = "", base_price: int | None = None,
     ) -> None:
-        return await self.menus.upsert_item(
+        return await self.catalog.upsert_item(
             key, name, price, category, is_available, sort_order,
-            description, tags, size, protein, conditions,
+            description, tags, size, specifications,
+            subcategory, base_price,
         )
+
+    async def load_catalog_variants(self) -> list[dict[str, Any]]:
+        return await self.variants.load_all()
+
+    async def load_catalog_variants_for_item(self, item_key: str) -> list[dict[str, Any]]:
+        return await self.variants.load_for_item(item_key)
+
+    async def upsert_catalog_variant(self, item_key: str, label: str, price: int, slug: str, sort_order: int = 0) -> None:
+        return await self.variants.upsert(item_key, label, price, slug, sort_order)
+
+    async def delete_catalog_variants_for_item(self, item_key: str) -> None:
+        return await self.variants.delete_for_item(item_key)
+
+    async def load_catalog_options(self) -> list[dict[str, Any]]:
+        return await self.options.load_all()
+
+    async def load_catalog_options_for_category(self, category: str) -> list[dict[str, Any]]:
+        return await self.options.load_for_category(category)
+
+    async def upsert_catalog_option(self, key: str, name: str, price: int, category_scope: str = "", sort_order: int = 0) -> None:
+        return await self.options.upsert(key, name, price, category_scope, sort_order)
+
+    async def delete_catalog_option(self, key: str) -> None:
+        return await self.options.delete(key)
+
+    async def load_promotions(self) -> list[dict[str, Any]]:
+        return await self.promotions.load_all()
+
+    async def upsert_promotion(
+        self, key: str, name: str, promotion_type: str, price: int | None = None,
+        valid_days: str = "[]", valid_from: str = "", valid_to: str = "",
+        terms: str = "", display_text: str = "", sort_order: int = 0,
+    ) -> None:
+        return await self.promotions.upsert(
+            key, name, promotion_type, price, valid_days, valid_from, valid_to,
+            terms, display_text, sort_order,
+        )
+
+    async def load_promotion_items(self, promotion_key: str) -> list[dict[str, Any]]:
+        return await self.promotions.load_promotion_items(promotion_key)
+
+    async def upsert_promotion_item(self, promotion_key: str, item_key: str, promotion_price: int | None = None) -> None:
+        return await self.promotions.upsert_promotion_item(promotion_key, item_key, promotion_price)
+
+    async def delete_promotion_items(self, promotion_key: str) -> None:
+        return await self.promotions.delete_promotion_items(promotion_key)
+
+    async def delete_promotion(self, key: str) -> None:
+        return await self.promotions.delete(key)
 
     async def update_conversation_state(self, phone: str, state: str, requires_human_review: bool = False) -> None:
         return await self.conversations.update_state(phone, state, requires_human_review)
@@ -240,7 +260,7 @@ class Database:
     async def save_appointment(self, phone: str, date: str, time: str, service_key: str, status: str = "confirmed") -> int:
         return await self.appointments.save(phone, date, time, service_key, status)
 
-    async def load_appointments(self, phone: str, status: str = "confirmed") -> list[aiosqlite.Row]:
+    async def load_appointments(self, phone: str, status: str = "confirmed") -> list[asyncpg.Record]:
         return await self.appointments.load(phone, status)
 
     async def cancel_appointment(self, phone: str, date: str, time: str) -> None:
@@ -249,19 +269,19 @@ class Database:
     async def save_membership(self, phone: str, plan_key: str, status: str, started_at: str, next_billing: str) -> None:
         return await self.memberships.save(phone, plan_key, status, started_at, next_billing)
 
-    async def load_membership(self, phone: str) -> aiosqlite.Row | None:
+    async def load_membership(self, phone: str) -> asyncpg.Record | None:
         return await self.memberships.load(phone)
 
     async def cancel_membership(self, phone: str) -> None:
         return await self.memberships.cancel(phone)
 
-    async def load_plans(self) -> list[aiosqlite.Row]:
+    async def load_plans(self) -> list[asyncpg.Record]:
         return await self.plans.load_all()
 
     async def upsert_plan(self, key: str, name: str, price: int, billing_cycle: str = "monthly", features: str = "[]", sort_order: int = 0) -> None:
         return await self.plans.upsert(key, name, price, billing_cycle, features, sort_order)
 
-    async def load_lead(self, phone: str) -> aiosqlite.Row | None:
+    async def load_lead(self, phone: str) -> asyncpg.Record | None:
         return await self.leads.load(phone)
 
     async def upsert_lead(self, phone: str, stage: str, data_json: str) -> None:
@@ -316,19 +336,29 @@ class Database:
         return await self.agent_templates.get(template_id)
 
     async def close(self) -> None:
-        if self._conn:
-            await self._conn.close()
-            self._conn = None
+        await close_pool()
 
 
 db = Database()
 
 
 async def init_db() -> None:
-    from db.migrator import run_migrations
-    os.makedirs(settings.DB_DIR, exist_ok=True)
-    run_migrations(settings.DB_PATH)
-    await db._get_conn()
+    import logging
+
+    logging.getLogger("alembic").setLevel(logging.WARNING)
+    logging.getLogger("alembic.runtime.migration").setLevel(logging.WARNING)
+
+    from alembic import command # noqa: I001
+    from alembic.config import Config as AlembicConfig
+
+    alembic_cfg = AlembicConfig()
+    alembic_cfg.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "alembic"))
+    alembic_cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+    command.upgrade(alembic_cfg, "head")
+    logger.info("alembic_upgraded", url=settings.DATABASE_URL.split("@")[-1])
+
+    await create_pool()
+    logger.info("db_initialized", engine="postgresql")
 
 
 async def get_db() -> Database:

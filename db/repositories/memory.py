@@ -7,21 +7,19 @@ from db.repositories.base import BaseRepository
 class MemoryRepository(BaseRepository):
     async def get(self, phone: str) -> ConversationMemory | None:
         row = await self._fetchone(
-            "SELECT * FROM conversation_memory WHERE phone=?",
-            (phone,),
+            "SELECT * FROM conversation_memory WHERE phone=$1",
+            phone,
         )
         return row_to_memory(row)
 
     async def upsert(self, phone: str, summary: str, key_facts: str, total_count: int) -> None:
-        conn = await self._get_conn()
-        await conn.execute(
+        await self._execute(
             """INSERT INTO conversation_memory (phone, summary, key_facts, total_messages_summarized, updated_at)
-               VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-               ON CONFLICT(phone) DO UPDATE SET
-               summary=excluded.summary,
-               key_facts=excluded.key_facts,
-               total_messages_summarized=excluded.total_messages_summarized,
-               updated_at=CURRENT_TIMESTAMP""",
-            (phone, summary, key_facts, total_count),
+            VALUES ($1, $2, $3::jsonb, $4, NOW())
+            ON CONFLICT (phone) DO UPDATE SET
+            summary=excluded.summary,
+            key_facts=excluded.key_facts,
+            total_messages_summarized=excluded.total_messages_summarized,
+            updated_at=NOW()""",
+            phone, summary, key_facts, total_count,
         )
-        await conn.commit()

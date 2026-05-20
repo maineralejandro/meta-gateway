@@ -1,52 +1,44 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any
 
-if TYPE_CHECKING:
-    import aiosqlite
+import asyncpg
+
+from db.engine import get_pool
 
 
 class BaseRepository:
-    def __init__(self, get_conn: Any) -> None:
-        self._get_conn = get_conn
+    def __init__(self, get_pool_fn: Any = get_pool) -> None:
+        self._get_pool = get_pool_fn
 
-    async def _execute(self, query: str, params: tuple[Any, ...] = ()) -> None:
-        conn = await self._get_conn()
-        await conn.execute(query, params)
+    async def _execute(self, query: str, *args: Any) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(query, *args)
 
-    async def _fetchone(self, query: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
-        conn = await self._get_conn()
-        cursor = await conn.execute(query, params)
-        return cast("aiosqlite.Row | None", await cursor.fetchone())
+    async def _fetchone(self, query: str, *args: Any) -> asyncpg.Record | None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            return await conn.fetchrow(query, *args)
 
-    async def _fetchall(self, query: str, params: tuple[Any, ...] = ()) -> list[aiosqlite.Row]:
-        conn = await self._get_conn()
-        cursor = await conn.execute(query, params)
-        rows = await cursor.fetchall()
-        return list(rows)
+    async def _fetchall(self, query: str, *args: Any) -> list[asyncpg.Record]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            return await conn.fetch(query, *args)  # type: ignore[no-any-return]
 
-    async def _commit(self) -> None:
-        conn = await self._get_conn()
-        await conn.commit()
+    async def _execute_and_commit(self, query: str, *args: Any) -> None:
+        await self._execute(query, *args)
 
-    async def _execute_and_commit(self, query: str, params: tuple[Any, ...] = ()) -> None:
-        await self._execute(query, params)
-        await self._commit()
-
-    async def _insert_returning_id(self, query: str, params: tuple[Any, ...]) -> int:
-        conn = await self._get_conn()
-        cursor = await conn.execute(query, params)
-        await conn.commit()
-        assert cursor.lastrowid is not None
-        return cast(int, cursor.lastrowid)
+    async def _insert_returning_id(self, query: str, *args: Any) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(query, *args)
+            if row is None:
+                raise RuntimeError("INSERT RETURNING id returned no row")
+            return row["id"]  # type: ignore[no-any-return]
 
     async def _execute_transaction(self, operations: list[tuple[str, tuple[Any, ...]]]) -> None:
-        conn = await self._get_conn()
-        try:
-            await conn.execute("BEGIN")
-            for query, params in operations:
-                await conn.execute(query, params)
-            await conn.execute("COMMIT")
-        except Exception:
-            await conn.execute("ROLLBACK")
-            raise
+        pool = await self._get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            for query, args in operations:
+                await conn.execute(query, *args)
