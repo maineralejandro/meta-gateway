@@ -123,7 +123,7 @@ class HITLRouter:
             sentiment=decision_data["sentiment"],
             sentiment_score=decision_data["sentiment_score"],
             confidence=decision_data["confidence"],
-            llm_escalate=1 if decision_data["llm_escalate"] else 0,
+            llm_escalate=bool(decision_data["llm_escalate"]),
             escalate_reason=decision_data.get("escalate_reason"),
             history_count=decision_data["history_count"],
             agent_name=decision_data["agent_name"],
@@ -136,11 +136,13 @@ class HITLRouter:
         self, db: Any, phone: str, correlation_id: str, agent_id: int | None, trace: dict[str, Any]
     ) -> None:
         try:
+            raw_messages = trace.get("request_messages")
+            request_messages = raw_messages if raw_messages else "[]"
             trace_record = InferenceTrace(
                 phone=phone,
                 correlation_id=correlation_id,
                 agent_id=agent_id,
-                request_messages=trace.get("request_messages", ""),
+                request_messages=request_messages,
                 response_raw=trace.get("response_raw"),
                 response_source=trace.get("source", "error"),
                 error_type=trace.get("error_type"),
@@ -299,11 +301,7 @@ class HITLRouter:
             phone, sentiment_result["score"], sentiment_result["confidence"]
         )
 
-        used_tool_calling = trace.get("tools_executed") is not None
-        if not used_tool_calling:
-            for cap in capabilities:
-                response_text = await cap.parse_tags(phone, response_text, cap.config)
-            response_text = sanitize_llm_output(response_text)
+        response_text = sanitize_llm_output(response_text)
         client = self._get_meta_client()
         await client.send_text(phone, response_text)
         MESSAGES_SENT.labels(source="bot").inc()

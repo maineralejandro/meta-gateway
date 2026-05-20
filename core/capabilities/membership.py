@@ -1,5 +1,4 @@
 import json
-import re
 from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar
 
@@ -8,11 +7,6 @@ import structlog
 from core.capabilities.base import BaseCapability
 
 logger = structlog.get_logger()
-
-MEMBERSHIP_CHECK_RE = re.compile(r"\[MEMBERSHIP_CHECK\]")
-MEMBERSHIP_PLAN_RE = re.compile(r"\[MEMBERSHIP_PLAN:([a-z_0-9]+)\]")
-MEMBERSHIP_CANCEL_RE = re.compile(r"\[MEMBERSHIP_CANCEL\]")
-MEMBERSHIP_TRIAL_RE = re.compile(r"\[MEMBERSHIP_TRIAL:([a-z_0-9]+)\]")
 
 DEFAULT_PLANS: list[dict[str, Any]] = [
     {"key": "basico", "name": "Basico Mensual", "price": 15000, "billing_cycle": "monthly", "features": ["acceso gym", "lockers"]},
@@ -28,12 +22,6 @@ class MembershipCapability(BaseCapability):
         {"key": "allow_free_trial", "type": "boolean", "label": "Allow Free Trial", "default": False},
         {"key": "trial_days", "type": "integer", "label": "Trial Duration (days)", "default": 7},
     ]
-    tag_patterns: ClassVar[dict[str, re.Pattern[str]]] = {
-        "MEMBERSHIP_CHECK": MEMBERSHIP_CHECK_RE,
-        "MEMBERSHIP_PLAN": MEMBERSHIP_PLAN_RE,
-        "MEMBERSHIP_CANCEL": MEMBERSHIP_CANCEL_RE,
-        "MEMBERSHIP_TRIAL": MEMBERSHIP_TRIAL_RE,
-    }
     PARALLEL_SAFE_TOOLS: ClassVar[set[str]] = {"membership_check", "membership_get_plans"}
     SEQUENTIAL_TOOLS: ClassVar[set[str]] = {"membership_activate", "membership_cancel", "membership_trial"}
 
@@ -380,43 +368,6 @@ class MembershipCapability(BaseCapability):
         lines.append(f"- Inicio: {m['started_at']}")
         return "\n".join(lines)
 
-    async def parse_tags(self, phone: str, text: str, config: dict[str, Any]) -> str:
-        for match in MEMBERSHIP_PLAN_RE.finditer(text):
-            plan_key = match.group(1)
-            await self.activate_plan(phone, plan_key)
-
-        for match in MEMBERSHIP_TRIAL_RE.finditer(text):
-            plan_key = match.group(1)
-            await self.activate_trial(phone, plan_key)
-
-        if MEMBERSHIP_CANCEL_RE.search(text):
-            await self.cancel_membership(phone)
-
-        cleaned = MEMBERSHIP_CHECK_RE.sub("", text)
-        cleaned = MEMBERSHIP_PLAN_RE.sub("", cleaned)
-        cleaned = MEMBERSHIP_CANCEL_RE.sub("", cleaned)
-        cleaned = MEMBERSHIP_TRIAL_RE.sub("", cleaned)
-        return cleaned.strip()
-
     async def clear(self, phone: str, config: dict[str, Any]) -> None:
         self._memberships.pop(phone, None)
         self._loaded_phones.discard(phone)
-
-    def get_prompt_instructions(self, config: dict[str, Any]) -> str:
-        plans_str = ", ".join(f"{p['key']} (${p['price']:,})" for p in self._plans)
-        allow_trial = self._allow_free_trial()
-        instructions = (
-            "GESTION DE MEMBRESIAS (OBLIGATORIO):\n"
-            "Cuando el cliente elija un plan, incluye al final de tu respuesta: "
-            "[MEMBERSHIP_PLAN:clave_plan]\n"
-            f"Planes disponibles: {plans_str}\n\n"
-            "Cuando el cliente cancele: [MEMBERSHIP_CANCEL]\n"
-            "Para consultar estado: [MEMBERSHIP_CHECK]\n"
-        )
-        if allow_trial:
-            instructions += (
-                f"Si el cliente quiere probar antes: [MEMBERSHIP_TRIAL:clave_plan] "
-                f"(trial de {self._trial_days()} dias)\n"
-            )
-        instructions += "\nLos tags NO son visibles para el cliente."
-        return instructions

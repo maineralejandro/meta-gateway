@@ -1,4 +1,5 @@
 
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,7 +18,7 @@ class AgentBase(BaseModel):
     system_prompt: str
     escalation_marker: str = "ESCALATE_TO_HUMAN"
     fallback_responses: str = "{}"
-    is_active: int = 1
+    is_active: bool = True
 
 class AgentCreate(AgentBase):
     pass
@@ -28,7 +29,7 @@ class AgentUpdate(BaseModel):
     system_prompt: str | None = None
     escalation_marker: str | None = None
     fallback_responses: str | None = None
-    is_active: int | None = None
+    is_active: bool | None = None
 
 class AgentResponse(AgentBase):
     id: int
@@ -77,21 +78,21 @@ async def activate_agent(agent_id: int, db: Database = Depends(get_db)) -> dict[
 
 @router.post("/{agent_id}/reload")
 async def reload_agent(agent_id: int) -> dict[str, Any]:
-    from core.order_state import order_state
-    await order_state.reload_menu_from_db()
+    from core.cart_state import cart_state
+    await cart_state.reload_catalog_from_db()
     registry.invalidate(agent_id)
     await inference_engine.reload()
     return {
         "status": "success",
-        "message": "Reloaded: menu from DB + capability cache + inference cache",
-        "menu_items": len(order_state._menu),
-        "needs_search": order_state.needs_search,
+        "message": "Reloaded: catalog from DB + capability cache + inference cache",
+        "catalog_items": len(cart_state._catalog),
+        "needs_search": cart_state.needs_search,
     }
 
 
 class CapabilityUpsertItem(BaseModel):
     capability_name: str
-    is_active: int = 1
+    is_active: bool = True
     config_json: str = "{}"
 
 
@@ -103,10 +104,10 @@ class AgentCapabilityResponse(BaseModel):
     id: int | None
     agent_id: int
     capability_name: str
-    is_active: int
+    is_active: bool
     config_json: str
-    created_at: str | None = None
-    updated_at: str | None = None
+    created_at: datetime | str | None = None
+    updated_at: datetime | str | None = None
 
 
 @router.get("/{agent_id}/capabilities", response_model=list[AgentCapabilityResponse])

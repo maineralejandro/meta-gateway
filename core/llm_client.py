@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, RateLimitError
@@ -69,7 +69,7 @@ class LLMClient:
         last_err: Exception | None = None
         for attempt in range(self._max_retries):
             try:
-                return await client.chat.completions.create(**kwargs)
+                return cast(ChatCompletion, await client.chat.completions.create(**kwargs))
             except (RateLimitError, APIConnectionError, APITimeoutError) as e:
                 last_err = e
                 logger.warning(

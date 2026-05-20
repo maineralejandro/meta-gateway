@@ -36,7 +36,7 @@ async def send_message(req: SendMessageRequest) -> dict[str, Any]:
 
     await db.insert_message(req.phone, "outbound", "human", req.message, session_id=session_id)
     await db.execute_transaction([
-        ("UPDATE conversations SET last_message_at=CURRENT_TIMESTAMP WHERE phone=?", (req.phone,)),
+        ("UPDATE conversations SET last_message_at=NOW() WHERE phone=$1", (req.phone,)),
     ])
 
     if session_id:

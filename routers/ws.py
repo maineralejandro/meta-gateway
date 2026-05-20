@@ -50,22 +50,26 @@ manager = WebSocketConnectionManager()
 async def websocket_endpoint(websocket: WebSocket) -> None:
     await websocket.accept()
     if settings.DASHBOARD_TOKEN:
+        query_token = websocket.query_params.get("token")
+        if query_token == settings.DASHBOARD_TOKEN:
+            await websocket.send_json({"type": "auth_ok"})
+        else:
+            try:
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=5)
+            except TimeoutError:
+                await websocket.close(code=4001, reason="Auth timeout")
+                return
+            except WebSocketDisconnect:
+                return
+            if data.get("type") != "auth" or data.get("token") != settings.DASHBOARD_TOKEN:
+                await websocket.close(code=4001, reason="Invalid token")
+                return
+            await websocket.send_json({"type": "auth_ok"})
+        await manager.connect(websocket)
         try:
-            data = await asyncio.wait_for(websocket.receive_json(), timeout=5)
-        except TimeoutError:
-            await websocket.close(code=4001, reason="Auth timeout")
-            return
+            while True:
+                data = await websocket.receive_json()
+                if data.get("type") == "ping":
+                    await manager.send_to_one(websocket, {"type": "pong"})
         except WebSocketDisconnect:
-            return
-        if data.get("type") != "auth" or data.get("token") != settings.DASHBOARD_TOKEN:
-            await websocket.close(code=4001, reason="Invalid token")
-            return
-        await websocket.send_json({"type": "auth_ok"})
-    await manager.connect(websocket)
-    try:
-        while True:
-            data = await websocket.receive_json()
-            if data.get("type") == "ping":
-                await manager.send_to_one(websocket, {"type": "pong"})
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
+            manager.disconnect(websocket)

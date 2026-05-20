@@ -89,8 +89,8 @@ async def _handle_message(msg: dict[str, Any], value: dict[str, Any], correlatio
     db = await get_db()
 
     row = await db.fetchone(
-        "SELECT state, requires_human_review FROM conversations WHERE phone=?",
-        (phone,),
+        "SELECT state, requires_human_review FROM conversations WHERE phone=$1",
+        phone,
     )
 
     if not row:
@@ -98,7 +98,8 @@ async def _handle_message(msg: dict[str, Any], value: dict[str, Any], correlatio
         state = "BOT_ACTIVE"
         requires_human = False
     else:
-        state, requires_human = row
+        state = row["state"]
+        requires_human = row["requires_human_review"]
 
     session_id = await session_manager.get_or_create_session(phone)
 
@@ -110,10 +111,10 @@ async def _handle_message(msg: dict[str, Any], value: dict[str, Any], correlatio
             correlation_id=correlation_id,
         )
         await db.execute_transaction([
-            ("UPDATE conversations SET last_message_at=CURRENT_TIMESTAMP, unread_count=unread_count+1 WHERE phone=?", (phone,)),
+            ("UPDATE conversations SET last_message_at=NOW(), unread_count=unread_count+1 WHERE phone=$1", (phone,)),
         ])
     except Exception as e:
-        if "UNIQUE constraint" in str(e) and "meta_message_id" in str(e):
+        if ("unique" in str(e).lower() or "UNIQUE constraint" in str(e)) and "meta_message_id" in str(e):
             WEBHOOK_DUPLICATES.inc()
             logger.info("duplicate_webhook_ignored", meta_msg_id=meta_msg_id, phone=phone)
             return {"status": "duplicate"}

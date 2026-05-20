@@ -62,6 +62,7 @@ class GenerationResult:
     completion_tokens: int = 0
 
     latency_ms: int = 0
+    request_messages: str = "[]"
 
     def to_tuple(self) -> tuple[str, bool, dict[str, Any]]:
         return self.text, self.should_escalate, {
@@ -72,6 +73,7 @@ class GenerationResult:
             "token_usage_prompt": self.prompt_tokens,
             "token_usage_completion": self.completion_tokens,
             "latency_ms": self.latency_ms,
+            "request_messages": self.request_messages,
             "tools_executed": json.dumps(self.tools_executed) if self.tools_executed else None,
             "tool_loop_iterations": self.iterations,
             "escalation_reason": self.escalation_reason or None,
@@ -460,6 +462,7 @@ class InferenceEngine:
                                         prompt_tokens=total_prompt_tokens,
                                         completion_tokens=total_completion_tokens,
                                         latency_ms=elapsed_ms,
+                                        request_messages=json.dumps(messages),
                                     )
                                 continue
                         else:
@@ -478,6 +481,7 @@ class InferenceEngine:
                             prompt_tokens=total_prompt_tokens,
                             completion_tokens=total_completion_tokens,
                             latency_ms=int((time.monotonic() - t_start) * 1000),
+                            request_messages=json.dumps(messages),
                         )
                     text = sanitize_llm_output(text)
                     elapsed_ms = int((time.monotonic() - t_start) * 1000)
@@ -509,15 +513,16 @@ class InferenceEngine:
                         prompt_tokens=total_prompt_tokens,
                         completion_tokens=total_completion_tokens,
                         latency_ms=elapsed_ms,
+                        request_messages=json.dumps(messages),
                     )
 
             tool_call_summaries = []
             for tc in msg.tool_calls:
                 try:
-                    tc_args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                    tc_args = json.loads(tc.function.arguments) if tc.function.arguments else {}  # type: ignore[union-attr]
                 except (json.JSONDecodeError, TypeError):
                     tc_args = {}
-                tool_call_summaries.append(f"{tc.function.name}({json.dumps(tc_args, ensure_ascii=False)})")
+                tool_call_summaries.append(f"{tc.function.name}({json.dumps(tc_args, ensure_ascii=False)})")  # type: ignore[union-attr]
 
             logger.info(
                 "tool_loop_calls",
@@ -535,8 +540,8 @@ class InferenceEngine:
                         "id": tc.id,
                         "type": "function",
                         "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
+                            "name": tc.function.name,  # type: ignore[union-attr]
+                            "arguments": tc.function.arguments,  # type: ignore[union-attr]
                         },
                     }
                     for tc in msg.tool_calls
@@ -564,6 +569,7 @@ class InferenceEngine:
                         prompt_tokens=total_prompt_tokens,
                         completion_tokens=total_completion_tokens,
                         latency_ms=elapsed_ms,
+                        request_messages=json.dumps(messages),
                     )
 
         elapsed_ms = int((time.monotonic() - t_start) * 1000)
@@ -583,6 +589,7 @@ class InferenceEngine:
             prompt_tokens=total_prompt_tokens,
             completion_tokens=total_completion_tokens,
             latency_ms=elapsed_ms,
+            request_messages=json.dumps(messages),
         )
 
     async def _execute_single_tool(
@@ -686,13 +693,8 @@ class InferenceEngine:
         escalation_marker: str,
         trace: dict[str, Any],
     ) -> tuple[str, bool, dict[str, Any]]:
-        cap_instructions: list[str] = []
-        for cap in capabilities:
-            instruction = cap.get_prompt_instructions(cap.config)
-            if instruction:
-                cap_instructions.append(instruction)
-        if cap_instructions:
-            system_prompt += "\n\n" + "\n\n".join(cap_instructions)
+        # Legacy cap_instructions loop removed as all capabilities migrated to tool calling natively
+        pass
         if "customer_message" not in system_prompt:
             system_prompt += (
                 "\n\nIMPORTANTE: El mensaje del cliente viene dentro de etiquetas"

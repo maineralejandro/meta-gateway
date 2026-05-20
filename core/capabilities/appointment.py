@@ -1,4 +1,3 @@
-import re
 from datetime import datetime, timedelta
 from typing import Any, ClassVar
 
@@ -7,10 +6,6 @@ import structlog
 from core.capabilities.base import BaseCapability
 
 logger = structlog.get_logger()
-
-APPOINTMENT_ADD_RE = re.compile(r"\[APPOINTMENT_ADD:([0-9-]+):([0-9:]+):([a-z_0-9]+)\]")
-APPOINTMENT_CANCEL_RE = re.compile(r"\[APPOINTMENT_CANCEL:([0-9-]+):([0-9:]+)\]")
-APPOINTMENT_AVAILABLE_RE = re.compile(r"\[APPOINTMENT_AVAILABLE:([0-9-]+)\]")
 
 DEFAULT_BUSINESS_HOURS: dict[str, str] = {
     "mon": "09:00-18:00",
@@ -45,11 +40,6 @@ class AppointmentCapability(BaseCapability):
         {"key": "timezone", "type": "string", "label": "Timezone", "default": "America/Santiago"},
         {"key": "max_advance_days", "type": "integer", "label": "Max Advance Days", "default": 30},
     ]
-    tag_patterns: ClassVar[dict[str, re.Pattern[str]]] = {
-        "APPOINTMENT_ADD": APPOINTMENT_ADD_RE,
-        "APPOINTMENT_CANCEL": APPOINTMENT_CANCEL_RE,
-        "APPOINTMENT_AVAILABLE": APPOINTMENT_AVAILABLE_RE,
-    }
     PARALLEL_SAFE_TOOLS: ClassVar[set[str]] = {"appointment_get_available"}
     SEQUENTIAL_TOOLS: ClassVar[set[str]] = {"appointment_add", "appointment_cancel"}
 
@@ -344,35 +334,6 @@ class AppointmentCapability(BaseCapability):
             return None
         return "\n".join(lines)
 
-    async def parse_tags(self, phone: str, text: str, config: dict[str, Any]) -> str:
-        for match in APPOINTMENT_ADD_RE.finditer(text):
-            date, time, service_key = match.group(1), match.group(2), match.group(3)
-            await self.add_appointment(phone, date, time, service_key)
-
-        for match in APPOINTMENT_CANCEL_RE.finditer(text):
-            date, time = match.group(1), match.group(2)
-            await self.cancel_appointment(phone, date, time)
-
-        cleaned = APPOINTMENT_ADD_RE.sub("", text)
-        cleaned = APPOINTMENT_CANCEL_RE.sub("", cleaned)
-        cleaned = APPOINTMENT_AVAILABLE_RE.sub("", cleaned)
-        return cleaned.strip()
-
     async def clear(self, phone: str, config: dict[str, Any]) -> None:
         self._appointments.pop(phone, None)
         self._loaded_phones.discard(phone)
-
-    def get_prompt_instructions(self, config: dict[str, Any]) -> str:
-        services = self._get_services()
-        services_str = ", ".join(s.get("key", "") for s in services) if services else "(configurar servicios)"
-        return (
-            "GESTIÓN DE CITAS (OBLIGATORIO):\n"
-            "Cuando el cliente quiera agendar una cita, incluye al final de tu respuesta: "
-            "[APPOINTMENT_ADD:fecha:hora:servicio]\n"
-            "- fecha en formato YYYY-MM-DD\n"
-            "- hora en formato HH:MM\n"
-            f"- servicio: {services_str}\n\n"
-            "Cuando el cliente cancele: [APPOINTMENT_CANCEL:fecha:hora]\n"
-            "Para consultar disponibilidad: [APPOINTMENT_AVAILABLE:fecha]\n\n"
-            "Los tags NO son visibles para el cliente."
-        )

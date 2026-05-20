@@ -13,9 +13,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from core.background import start_cleanup_task, stop_cleanup_task
 from core.capabilities.appointment import AppointmentCapability
 from core.capabilities.base import registry
+from core.capabilities.cart import CartCapability
 from core.capabilities.lead import LeadCapability
 from core.capabilities.membership import MembershipCapability
-from core.capabilities.order import OrderCapability
 from core.config import settings
 from core.container import container
 from core.events import setup_default_subscribers
@@ -40,6 +40,9 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
 
+        if request.url.path.startswith("/ws"):
+            return await call_next(request)
+
         path = request.url.path
         if path in EXEMPT_PATHS or path.startswith("/webhook"):
             return await call_next(request)
@@ -59,6 +62,9 @@ class APIRateLimitMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
 
+        if request.url.path.startswith("/ws"):
+            return await call_next(request)
+
         path = request.url.path
         if path in EXEMPT_PATHS or path.startswith("/webhook"):
             return await call_next(request)
@@ -73,19 +79,19 @@ class APIRateLimitMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_db()
-    registry.register(OrderCapability)
+    registry.register(CartCapability)
     registry.register(AppointmentCapability)
     registry.register(MembershipCapability)
     registry.register(LeadCapability)
     container.build()
     container.wire_singletons()
     setup_default_subscribers()
-    from core.order_state import order_state
-    await order_state.reload_menu_from_db()
-    logger.info("menu_loaded_at_startup", item_count=len(order_state._menu), needs_search=order_state.needs_search)
+    from core.cart_state import cart_state
+    await cart_state.reload_catalog_from_db()
+    logger.info("catalog_loaded_at_startup", item_count=len(cart_state._catalog), needs_search=cart_state.needs_search)
     APP_INFO.info({"version": "2.0.0", "llm_model": settings.LLM_MODEL or "unknown"})
     start_cleanup_task()
-    logger.info("db_initialized", path=settings.DB_PATH)
+    logger.info("db_initialized", engine="postgresql")
 
     if not settings.SKIP_STARTUP_VALIDATION:
         required = {
@@ -109,6 +115,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         phone_number_id=settings.WHATSAPP_PHONE_NUMBER_ID,
         env_file=str(settings.model_config.get("env_file", "")),
     )
+
+    if not settings.SKIP_STARTUP_VALIDATION:
+        token_health = await meta_client.check_token_health()
+        if not token_health.get("valid"):
+            logger.error(
+                "meta_token_invalid_at_startup",
+                hint="Update WHATSAPP_ACCESS_TOKEN in .env or set env var. Create System User token at https://business.facebook.com/settings/system-users",
+            )
     yield
     stop_cleanup_task()
     await wait_for_inflight()
@@ -149,32 +163,38 @@ app.include_router(ws.router)
 
 @app.get("/", response_class=HTMLResponse)
 async def home() -> str:
-    return """
+    from db.database import get_db as _get_db
+
+    _db = await _get_db()
+    agent = await _db.get_agent(is_active=True)
+    agent_name = agent.name if agent else "N/A"
+    return f"""
     <!DOCTYPE html>
     <html>
     <head><title>Hermes WhatsApp Gateway</title>
     <style>
-    body { background: #111; color: #eee; font-family: system-ui; padding: 40px; }
-    a { color: #4CAF50; }
-    .container { max-width: 800px; margin: 0 auto; }
-    .endpoint { background: #1f2937; padding: 12px; margin: 8px 0; border-radius: 8px; }
-    .method { color: #4CAF50; font-weight: bold; }
-    code { background: #374151; padding: 2px 6px; border-radius: 4px; }
+    body {{ background: #111; color: #eee; font-family: system-ui; padding: 40px; }}
+    a {{ color: #4CAF50; }}
+    .container {{ max-width: 800px; margin: 0 auto; }}
+    .endpoint {{ background: #1f2937; padding: 12px; margin: 8px 0; border-radius: 8px; }}
+    .method {{ color: #4CAF50; font-weight: bold; }}
+    code {{ background: #374151; padding: 2px 6px; border-radius: 4px; }}
     </style>
     </head>
     <body>
     <div class="container">
     <h1>Hermes WhatsApp HITL Gateway</h1>
     <p>Custom Gateway Meta Cloud API + Human-in-the-Loop Dashboard</p>
+    <p>Active Agent: <strong>{agent_name}</strong></p>
 
     <h2>Endpoints</h2>
-<div class="endpoint"><span class="method">GET</span> <code>/webhook/whatsapp</code> — Meta webhook verification</div>
-            <div class="endpoint"><span class="method">POST</span> <code>/webhook/whatsapp</code> — Meta webhook receiver</div>
+    <div class="endpoint"><span class="method">GET</span> <code>/webhook/whatsapp</code> — Meta webhook verification</div>
+    <div class="endpoint"><span class="method">POST</span> <code>/webhook/whatsapp</code> — Meta webhook receiver</div>
     <div class="endpoint"><span class="method">GET</span> <code>/api/conversations</code> — List all conversations</div>
-    <div class="endpoint"><span class="method">GET</span> <code>/api/conversations/{phone}</code> — Get conversation detail</div>
+    <div class="endpoint"><span class="method">GET</span> <code>/api/conversations/{{phone}}</code> — Get conversation detail</div>
     <div class="endpoint"><span class="method">POST</span> <code>/api/conversations/state</code> — Update conversation state</div>
-    <div class="endpoint"><span class="method">POST</span> <code>/api/conversations/{phone}/reset-unread</code> — Reset unread count</div>
-    <div class="endpoint"><span class="method">GET</span> <code>/api/messages/{phone}</code> — Get message history</div>
+    <div class="endpoint"><span class="method">POST</span> <code>/api/conversations/{{phone}}/reset-unread</code> — Reset unread count</div>
+    <div class="endpoint"><span class="method">GET</span> <code>/api/messages/{{phone}}</code> — Get message history</div>
     <div class="endpoint"><span class="method">POST</span> <code>/api/messages/send</code> — Send manual message</div>
     <div class="endpoint"><span class="method">WS</span> <code>/ws</code> — WebSocket real-time events</div>
 
@@ -202,6 +222,7 @@ async def metrics() -> Any:
 @app.get("/api/health")
 async def health_check() -> dict[str, Any]:
     meta_health = await meta_client.health_check()
+    token_health = await meta_client.check_token_health()
     llm_key_valid = bool(settings.LLM_API_KEY and not settings.LLM_API_KEY.startswith("nvapi-REPLACE"))
 
     db_ok = False
@@ -223,6 +244,10 @@ async def health_check() -> dict[str, Any]:
             "api_version": settings.META_API_URL.split("/")[-1],
             "phone_number_id": settings.WHATSAPP_PHONE_NUMBER_ID,
             "token_set": bool(settings.WHATSAPP_ACCESS_TOKEN),
+            "token_valid": token_health.get("valid"),
+            "token_type": token_health.get("type"),
+            "token_expires_at": token_health.get("expires_at"),
+            "token_remaining_min": token_health.get("remaining_min"),
         },
         "llm": {
             "available": llm_key_valid,
@@ -231,7 +256,7 @@ async def health_check() -> dict[str, Any]:
             "base_url": settings.LLM_BASE_URL,
             "api_key_set": llm_key_valid,
         },
-        "db": {"connected": db_ok, "path": settings.DB_PATH},
+        "db": {"connected": db_ok, "engine": "postgresql"},
     }
 
 

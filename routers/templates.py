@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,7 +20,7 @@ class TemplateResponse(BaseModel):
     system_prompt_template: str
     capabilities: str
     fallback_responses: str
-    created_at: str | None = None
+    created_at: datetime | str | None = None
 
 
 class CreateFromTemplateRequest(BaseModel):
@@ -69,7 +70,7 @@ async def create_from_template(
         description=template.description,
         system_prompt=system_prompt,
         fallback_responses=template.fallback_responses,
-        is_active=1,
+        is_active=True,
     )
     agent_id = await db.upsert_agent(agent)
 
@@ -88,7 +89,7 @@ async def create_from_template(
         ac = AgentCapability(
             agent_id=agent_id,
             capability_name=cap_name,
-            is_active=1,
+    is_active=True,
             config_json=json.dumps(cap_config),
         )
         await db.upsert_agent_capability(ac)

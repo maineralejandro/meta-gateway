@@ -20,7 +20,7 @@ const MIN_DELAY = 3000
 const MAX_DELAY = 30000
 const BACKOFF_FACTOR = 2
 
-export function useWebSocket(url: string, handlers: Record<string, WSHandler>) {
+export function useWebSocket(url: string, handlers: Record<string, WSHandler>, token?: string) {
   const wsRef = useRef<WebSocket | null>(null)
   const handlersRef = useRef(handlers)
   const retryDelayRef = useRef(MIN_DELAY)
@@ -36,6 +36,9 @@ export function useWebSocket(url: string, handlers: Record<string, WSHandler>) {
     ws.onopen = () => {
       console.log('[WS] Connected')
       retryDelayRef.current = MIN_DELAY
+      if (token) {
+        ws.send(JSON.stringify({ type: 'auth', token }))
+      }
     }
 
     ws.onclose = () => {
@@ -57,7 +60,7 @@ export function useWebSocket(url: string, handlers: Record<string, WSHandler>) {
         console.error('[WS] Parse error', e)
       }
     }
-  }, [url])
+  }, [url, token])
 
   useEffect(() => {
     mountedRef.current = true

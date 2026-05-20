@@ -1,5 +1,4 @@
 import json
-import re
 from typing import Any, ClassVar
 
 import structlog
@@ -7,9 +6,6 @@ import structlog
 from core.capabilities.base import BaseCapability
 
 logger = structlog.get_logger()
-
-LEAD_UPDATE_RE = re.compile(r"\[LEAD_UPDATE:([a-z_0-9]+):([^\]]+)\]")
-LEAD_STAGE_RE = re.compile(r"\[LEAD_STAGE:([a-z_0-9]+)\]")
 
 DEFAULT_STAGES: list[str] = ["interesado", "calificado", "visita", "propuesta", "cerrado"]
 DEFAULT_FIELDS: list[str] = ["presupuesto", "zona", "tipo_propiedad"]
@@ -22,10 +18,6 @@ class LeadCapability(BaseCapability):
         {"key": "stages", "type": "array", "label": "Pipeline Stages", "default": DEFAULT_STAGES},
         {"key": "fields", "type": "array", "label": "Lead Fields", "default": DEFAULT_FIELDS},
     ]
-    tag_patterns: ClassVar[dict[str, re.Pattern[str]]] = {
-        "LEAD_UPDATE": LEAD_UPDATE_RE,
-        "LEAD_STAGE": LEAD_STAGE_RE,
-    }
     PARALLEL_SAFE_TOOLS: ClassVar[set[str]] = {"lead_get"}
     SEQUENTIAL_TOOLS: ClassVar[set[str]] = {"lead_update_field", "lead_advance_stage"}
 
@@ -236,34 +228,6 @@ class LeadCapability(BaseCapability):
             lines.append(f"- {key}: {value}")
         return "\n".join(lines)
 
-    async def parse_tags(self, phone: str, text: str, config: dict[str, Any]) -> str:
-        for match in LEAD_UPDATE_RE.finditer(text):
-            field, value = match.group(1), match.group(2)
-            await self.update_field(phone, field, value)
-
-        for match in LEAD_STAGE_RE.finditer(text):
-            stage = match.group(1)
-            await self.advance_stage(phone, stage)
-
-        cleaned = LEAD_UPDATE_RE.sub("", text)
-        cleaned = LEAD_STAGE_RE.sub("", cleaned)
-        return cleaned.strip()
-
     async def clear(self, phone: str, config: dict[str, Any]) -> None:
         self._leads.pop(phone, None)
         self._loaded_phones.discard(phone)
-
-    def get_prompt_instructions(self, config: dict[str, Any]) -> str:
-        stages = self._get_stages()
-        fields = self._get_fields()
-        stages_str = ", ".join(stages)
-        fields_str = ", ".join(fields)
-        return (
-            "GESTION DE LEADS (OBLIGATORIO):\n"
-            "Cuando el cliente brinde informacion relevante, incluye al final de tu respuesta: "
-            "[LEAD_UPDATE:campo:valor]\n"
-            f"Campos validos: {fields_str}\n\n"
-            "Cuando el lead avance de etapa: [LEAD_STAGE:etapa]\n"
-            f"Etapas validas: {stages_str}\n\n"
-            "Los tags NO son visibles para el cliente."
-        )

@@ -41,19 +41,19 @@ async def update_state(req: UpdateStateRequest) -> dict[str, Any]:
     ops: list[tuple[str, tuple[Any, ...]]] = []
     if not conv:
         ops = [
-            ("INSERT INTO conversations (phone, state, last_message_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
-             (req.phone, req.state)),
+            ("INSERT INTO conversations (phone, state, last_message_at) VALUES ($1, $2, NOW())",
+            (req.phone, req.state)),
         ]
     else:
         ops = [
-            ("UPDATE conversations SET state=?, requires_human_review=? WHERE phone=?",
-             (req.state, 1 if req.state != "BOT_ACTIVE" else 0, req.phone)),
+            ("UPDATE conversations SET state=$1, requires_human_review=$2 WHERE phone=$3",
+            (req.state, req.state != "BOT_ACTIVE", req.phone)),
         ]
 
     if old_state != req.state:
         ops.append(
-            ("INSERT INTO escalation_events (phone, from_state, to_state, reason) VALUES (?, ?, ?, ?)",
-             (req.phone, old_state, req.state, "manual_change")),
+            ("INSERT INTO escalation_events (phone, from_state, to_state, reason) VALUES ($1, $2, $3, $4)",
+            (req.phone, old_state, req.state, "manual_change")),
         )
 
     await db.execute_transaction(ops)
@@ -96,7 +96,7 @@ async def get_conversation(phone: str) -> Any:
 async def reset_unread(phone: str) -> dict[str, str]:
     db = await get_db()
     await db.execute_transaction([
-        ("UPDATE conversations SET unread_count=0 WHERE phone=?", (phone,)),
+        ("UPDATE conversations SET unread_count=0 WHERE phone=$1", (phone,)),
     ])
     return {"status": "ok"}
 

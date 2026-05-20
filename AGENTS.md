@@ -2,7 +2,7 @@
 
 ## Vision
 
-Hermes is a WhatsApp Human-in-the-Loop gateway for a Chilean Food Truck. It receives customer messages via Meta Cloud API webhook, processes them through an LLM agent (NVIDIA NIM / Llama 3.3 70B), tracks orders via tag-based state machine, and escalates to human operators when sentiment/confidence thresholds are breached. A Next.js dashboard provides real-time conversation monitoring and agent configuration.
+Hermes is a WhatsApp Human-in-the-Loop gateway for any retail business. It receives customer messages via Meta Cloud API webhook, processes them through an LLM agent (NVIDIA NIM / Llama 3.3 70B), tracks carts via tool-based state machine, and escalates to human operators when sentiment/confidence thresholds are breached. A Next.js dashboard provides real-time conversation monitoring and agent configuration.
 
 ## Tech Stack
 
@@ -112,8 +112,8 @@ Meta Cloud API ──webhook──► routers/webhook.py
      │                              │
      │                   ┌──────────┼──────────┐
      │                   ▼          ▼          ▼
-     │            sentiment    inference   order_state
-     │            .py          .py          .py
+│ sentiment inference cart_state
+│ .py .py .py
      │                   │          │          │
      │                   └──────────┼──────────┘
      │                              ▼
@@ -121,8 +121,8 @@ Meta Cloud API ──webhook──► routers/webhook.py
      │                   ╱              ╲
      │               YES                 NO
      │                │                   │
-     │         PENDING_APPROVAL    parse_tags + sanitize
-     │         + notify dashboard   + send via Meta API
+│ PENDING_APPROVAL execute_tool_calls + sanitize
+│ + notify dashboard + send via Meta API
      │                              + maybe_summarize
      │
      ▼
@@ -138,7 +138,7 @@ Next.js Dashboard (WebSocket real-time)
 | `core/inference.py` | `inference_engine` | LLM client with retry/backoff |
 | `core/memory.py` | `memory_manager` | Context window + summarization |
 | `core/sentiment.py` | `sentiment_analyzer` | Sentiment + heuristic fallback |
-| `core/order_state.py` | `order_state` | In-memory order tracking per phone |
+| `core/cart_state.py` | `cart_state` | In-memory cart tracking per phone |
 | `core/sessions.py` | `session_manager` | Session lifecycle with 4h timeout |
 | `core/meta_client.py` | `meta_client` | WhatsApp API HTTP client |
 | `core/security.py` | `rate_limiter` | Per-phone rate limiting (30/min) |
@@ -154,8 +154,36 @@ All config via `core/config.py` (Pydantic Settings) reading from `.env`. Key var
 | `WHATSAPP_PHONE_NUMBER_ID` | Meta phone ID | (required) |
 | `META_APP_SECRET` | Webhook HMAC verification | (required) |
 | `LLM_API_KEY` | NVIDIA NIM API key | (required) |
-| `LLM_MODEL` | Model ID | `meta/llama-3.1-70b-instruct` |
+| `LLM_MODEL` | Model ID | `meta/llama-3.3-70b-instruct` |
 | `LLM_BASE_URL` | NIM endpoint | `https://integrate.api.nvidia.com/v1` |
-| `DB_DIR` | SQLite directory | `/tmp/hermes` |
+| `DATABASE_URL` | PostgreSQL connection | `postgresql://postgres:postgres@localhost:54322/postgres` |
 | `DASHBOARD_TOKEN` | Auth for API/WS | (required) |
 | `SKIP_STARTUP_VALIDATION` | Bypass credential checks | `false` |
+
+### Meta API Token — Temporary vs System User
+
+**Temporary Access Tokens** (generated from Meta App Dashboard → API Setup) expire in ~1-24 hours. The app logs `meta_token_expired` with `error_subcode=463` when they expire. The startup `check_token_health()` call warns if the token expires within 60 minutes.
+
+**System User Tokens** do NOT expire. To create one:
+1. Go to [Meta Business Manager](https://business.facebook.com/settings/system-users)
+2. Business Settings → Users → System Users → Add
+3. Assign the WhatsApp Business Management and Messaging permissions
+4. Generate token → copy to `.env` as `WHATSAPP_ACCESS_TOKEN`
+
+Token resolution priority in `core/meta_client.py`: `dotenv_values(.env)` → `os.environ` → `settings.WHATSAPP_ACCESS_TOKEN`. The `.env` file is read fresh on every request via `dotenv_values()`, which works with Docker bind mounts (the container sees the updated file on the host). `os.environ` is the fallback (used by `start_all.ps1` or Docker `env_file`), and `settings` is the last resort. This means: updating `.env` on the host takes effect immediately inside the Docker container without restart, because `dotenv_values()` reads the bind-mounted file directly.
+
+## Technical Debt
+
+### i18n — Hardcoded Spanish in LLM-facing strings
+All LLM-facing strings (system prompts, tool descriptions, escalate messages) are hardcoded in Spanish. This is intentional for the current Chile deployment but blocks multi-locale support. Key locations:
+- `db/migrations/001_initial_schema.sql` — system prompt content
+- `db/migrations/004_order_tags_system_prompt.sql` — agent prompt
+- `db/migrations/010_agent_templates.sql` — greeting template
+- `core/inference.py` — tool discipline / escalate description
+- `core/memory.py` — summarization context
+- `core/capabilities/cart.py` — tool descriptions and response messages
+
+Resolution path: extract all user-facing strings to a locale file (e.g. `config/locales/es.json`), load at runtime based on agent config. No immediate action required until multi-locale is needed.
+
+### Migration SQL — no semicolons in comments
+The migrator splits on `;` via dumb string split — it does not parse SQL comments. Any `;` inside `--` comments will be treated as a statement separator and cause syntax errors. All migration files must avoid `;` in comments.

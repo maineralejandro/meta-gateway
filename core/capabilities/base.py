@@ -1,5 +1,4 @@
 import json
-import re
 import time
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar
@@ -12,7 +11,6 @@ logger = structlog.get_logger()
 class BaseCapability(ABC):
     name: str = ""
     description: str = ""
-    tag_patterns: ClassVar[dict[str, re.Pattern[str]]] = {}
     config_schema: ClassVar[list[dict[str, Any]]] = []
     PARALLEL_SAFE_TOOLS: ClassVar[set[str]] = set()
     SEQUENTIAL_TOOLS: ClassVar[set[str]] = set()
@@ -25,16 +23,8 @@ class BaseCapability(ABC):
         """Inject business state into LLM context. Return None if no state to inject."""
 
     @abstractmethod
-    async def parse_tags(self, phone: str, text: str, config: dict[str, Any]) -> str:
-        """Extract structured tags from LLM response, mutate state, return cleaned text."""
-
-    @abstractmethod
     async def clear(self, phone: str, config: dict[str, Any]) -> None:
         """Reset state on session timeout."""
-
-    @abstractmethod
-    def get_prompt_instructions(self, config: dict[str, Any]) -> str:
-        """Return system prompt instructions for this capability's tags."""
 
     def get_tool_definitions(self, config: dict[str, Any]) -> list[dict[str, Any]]:
         """Return OpenAI tool schemas for this capability. Default: empty list."""

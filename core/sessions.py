@@ -42,11 +42,13 @@ class SessionManager:
 
         if conv.last_message_at:
             try:
-                last_msg_str = conv.last_message_at
-                if " " in last_msg_str and "T" not in last_msg_str:
-                    last_msg_time = datetime.strptime(last_msg_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+                last_msg_at = conv.last_message_at
+                if isinstance(last_msg_at, datetime):
+                    last_msg_time = last_msg_at if last_msg_at.tzinfo else last_msg_at.replace(tzinfo=UTC)
+                elif " " in last_msg_at and "T" not in last_msg_at:
+                    last_msg_time = datetime.strptime(last_msg_at, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
                 else:
-                    last_msg_time = datetime.fromisoformat(last_msg_str.replace("Z", "+00:00"))
+                    last_msg_time = datetime.fromisoformat(last_msg_at.replace("Z", "+00:00"))
 
                 elapsed = datetime.now(UTC) - last_msg_time
 

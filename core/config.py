@@ -1,7 +1,13 @@
+import os
 from pathlib import Path
-from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _default_database_url() -> str:
+    if os.path.exists("/.dockerenv"):
+        return "postgresql://postgres:postgres@supabase_db_app:5432/postgres"
+    return "postgresql://postgres:postgres@localhost:54322/postgres"
 
 
 class Settings(BaseSettings):
@@ -16,9 +22,9 @@ class Settings(BaseSettings):
     LLM_API_KEY: str = ""
     LLM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
 
-    DB_DIR: str = "./data"
-    DB_NAME: str = "whatsapp_conversations.db"
-    DB_PATH: str = ""
+    DATABASE_URL: str = _default_database_url()
+    DB_POOL_MIN: int = 2
+    DB_POOL_MAX: int = 10
 
     META_API_URL: str = "https://graph.facebook.com/v25.0"
 
@@ -38,12 +44,6 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
-
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        if not self.DB_PATH:
-            import os
-            self.DB_PATH = os.path.join(self.DB_DIR, self.DB_NAME)
 
 
 settings = Settings()

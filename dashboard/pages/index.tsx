@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useWebSocket } from '../hooks/useWebSocket'
-import { wsUrlWithToken } from '../lib/auth'
 import { useConversations, useMessages, useDecisions } from '../hooks/useConversationData'
 import { buildWSHandlers } from '../hooks/useWSHandlers'
 import type { WSNotification, ErrorNotification } from '../lib/types'
@@ -15,7 +14,7 @@ import DecisionPanel from '../components/DecisionPanel'
 import ObservabilityTab from '../components/observability/ObservabilityTab'
 
 const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/ws'
-const WS_URL = wsUrlWithToken(WS_BASE_URL)
+const DASHBOARD_TOKEN = process.env.NEXT_PUBLIC_DASHBOARD_TOKEN || ''
 
 export default function WhatsAppDashboard() {
   const [view, setView] = useState<'conversations' | 'agent' | 'observability'>('conversations')
@@ -60,7 +59,7 @@ export default function WhatsAppDashboard() {
     loadMessages,
   }), [selectedPhone, setConversations, setMessages, setDecisions, loadConversations, loadMessages])
 
-  useWebSocket(WS_URL, wsHandlers)
+  useWebSocket(WS_BASE_URL, wsHandlers, DASHBOARD_TOKEN)
 
   useEffect(() => {
     loadConversations()

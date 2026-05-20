@@ -4,8 +4,6 @@ from typing import Any
 
 import structlog
 
-from core.capabilities.base import BaseCapability
-from core.capabilities.base import registry as capability_registry
 from core.llm_client import LLMClient
 
 logger = structlog.get_logger()
@@ -40,7 +38,7 @@ MENSAJES NUEVOS:
 
 INSTRUCCIONES:
 1. Genera un resumen conciso (máximo 3 frases) que combine el resumen anterior con la información nueva.
-2. Extrae datos clave del cliente en formato JSON: nombre, dirección, productos pedidos, monto, preferencias, horarios habituales, método de pago, alergias o restricciones, quejas previas.
+2. Extrae datos clave del cliente en formato JSON: nombre, dirección, productos en el carrito, monto, preferencias, horarios habituales, método de pago, alergias o restricciones, quejas previas.
 3. Si un dato nuevo contradice uno anterior, usa el nuevo.
 4. Sé exhaustivo con los key_facts: cada dato factual del cliente debe ser un item separado.
 
@@ -82,7 +80,7 @@ class MemoryManager:
         phone: str,
         current_message: str | None = None,
         agent_id: int | None = None,
-        capabilities: list[BaseCapability] | None = None,
+        capabilities: list[Any] | None = None,
     ) -> list[dict[str, Any]]:
         _db = await self._resolve_db()
         memory = await _db.get_memory(phone)
@@ -109,12 +107,6 @@ class MemoryManager:
                 parts.append(f"Sesión del {started}: {s['summary']}")
             episodic_text = "Resúmenes de sesiones anteriores:\n" + "\n".join(parts)
             context.append({"role": "system", "content": episodic_text})
-
-        resolved = capabilities if capabilities is not None else await capability_registry.resolve(agent_id)
-        for cap in resolved:
-            cap_context = await cap.format_for_context(phone, cap.config)
-            if cap_context:
-                context.append({"role": "system", "content": cap_context})
 
         prev_session_id = None
         for turn in recent_turns:
@@ -219,7 +211,7 @@ class MemoryManager:
             logger.warning("summarize_session_skipped_no_llm", phone=phone, session_id=session_id)
             return
 
-        session_row = await _db.fetchone("SELECT started_at FROM sessions WHERE id=?", (session_id,))
+        session_row = await _db.fetchone("SELECT started_at FROM sessions WHERE id=$1", session_id)
         session_started = session_row["started_at"] if session_row else "Fecha desconocida"
 
         formatted = []
