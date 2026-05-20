@@ -12,6 +12,10 @@ class SessionRepository(BaseRepository):
         session_id = str(uuid.uuid4())
         pool = await self._get_pool()
         async with pool.acquire() as conn, conn.transaction():
+            await conn.fetchrow(
+                "SELECT phone FROM conversations WHERE phone=$1 FOR UPDATE",
+                phone,
+            )
             await conn.execute(
                 "INSERT INTO sessions (id, phone) VALUES ($1, $2)",
                 session_id, phone,

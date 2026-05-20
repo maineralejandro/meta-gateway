@@ -239,8 +239,6 @@ class CartCapability(BaseCapability):
                 await db.carts.delete(phone)
         except Exception as e:
             logger.error("cart_persist_error", phone=phone, error=str(e))
-            self._carts.pop(phone, None)
-            self._loaded_phones.discard(phone)
 
     async def get_cart(self, phone: str) -> dict[str, Any]:
         await self._ensure_loaded(phone)
@@ -710,11 +708,14 @@ class CartCapability(BaseCapability):
         return "\n".join(lines)
 
     async def clear(self, phone: str, config: dict[str, Any] | None = None) -> None:
+        db_ok = False
         try:
             from db.database import get_db
             db = await get_db()
             await db.carts.delete(phone)
+            db_ok = True
         except Exception as e:
             logger.error("cart_clear_error", phone=phone, error=str(e))
         self._carts.pop(phone, None)
-        self._loaded_phones.discard(phone)
+        if db_ok:
+            self._loaded_phones.discard(phone)

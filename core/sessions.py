@@ -55,29 +55,23 @@ class SessionManager:
                 if elapsed > timedelta(hours=SESSION_TIMEOUT_HOURS):
                     old_session_id = conv.current_session_id
                     await self._safe_summarize_session(phone, old_session_id)
-                    await _db.close_session(
-                        conv.current_session_id,
-                        reason='timeout',
-                    )
                     capabilities = await capability_registry.resolve(conv.agent_id)
                     for cap in capabilities:
                         await cap.clear(phone, cap.config)
                     logger.info(
                         "session_expired",
                         phone=phone,
-                        old_session=conv.current_session_id,
+                        old_session=old_session_id,
                         hours_inactive=elapsed.total_seconds() / 3600,
                     )
-
-                    if conv.state != "BOT_ACTIVE":
-                        await _db.update_conversation_state(phone, "BOT_ACTIVE", requires_human_review=False)
-
-                    return cast(str, await _db.create_session(phone))
+                return cast(str, await _db.expire_and_create_session_atomic(
+                    phone, old_session_id, conv.agent_id, new_state=conv.state,
+                ))
             except Exception as e:
                 logger.error("session_timeout_check_error", error=str(e), phone=phone)
-                return cast(str, conv.current_session_id)
+                return str(conv.current_session_id)
 
-        return cast(str, conv.current_session_id)
+        return str(conv.current_session_id)
 
 
 session_manager = SessionManager()

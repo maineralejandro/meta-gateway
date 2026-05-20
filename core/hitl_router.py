@@ -252,13 +252,13 @@ class HITLRouter:
         )
 
         escalation_msg = "Un momento, te comunico con un atendedor. \U0001f64f"
-        client = self._get_meta_client()
-        await client.send_text(phone, escalation_msg)
-        MESSAGES_SENT.labels(source="bot").inc()
         out_message_id = await db.insert_message(
             phone, "outbound", "bot", escalation_msg,
             session_id=session_id, correlation_id=correlation_id,
         )
+        client = self._get_meta_client()
+        await client.send_text(phone, escalation_msg)
+        MESSAGES_SENT.labels(source="bot").inc()
 
         await db.insert_turn(Turn(
             phone=phone,
@@ -302,13 +302,13 @@ class HITLRouter:
         )
 
         response_text = sanitize_llm_output(response_text)
-        client = self._get_meta_client()
-        await client.send_text(phone, response_text)
-        MESSAGES_SENT.labels(source="bot").inc()
         out_message_id = await db.insert_message(
             phone, "outbound", "bot", response_text,
             session_id=session_id, correlation_id=correlation_id,
         )
+        client = self._get_meta_client()
+        await client.send_text(phone, response_text)
+        MESSAGES_SENT.labels(source="bot").inc()
 
         await db.insert_turn(Turn(
             phone=phone,

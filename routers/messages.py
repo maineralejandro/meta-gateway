@@ -28,8 +28,6 @@ async def get_messages(phone: str, limit: int = 100) -> Any:
 
 @router.post("/send")
 async def send_message(req: SendMessageRequest) -> dict[str, Any]:
-    result = await meta_client.send_text(req.phone, req.message)
-
     db = await get_db()
     conv = await db.get_conversation(req.phone)
     session_id = conv.current_session_id if conv else None
@@ -41,6 +39,8 @@ async def send_message(req: SendMessageRequest) -> dict[str, Any]:
 
     if session_id:
         await db.increment_session_message_count(session_id)
+
+    result = await meta_client.send_text(req.phone, req.message)
 
     await emit("human-sent", {
         "phone": req.phone,

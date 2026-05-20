@@ -37,8 +37,7 @@ def mock_deps():
         mock_db = MagicMock()
         mock_row = {"state": "BOT_ACTIVE", "requires_human_review": False}
         mock_db.fetchone = AsyncMock(return_value=mock_row)
-        mock_db.insert_message = AsyncMock(return_value=1)
-        mock_db.execute_transaction = AsyncMock()
+        mock_db.insert_message_and_touch_conversation = AsyncMock(return_value=1)
         mock_db.increment_session_message_count = AsyncMock()
         mock_db.create_conversation = AsyncMock()
         mock_get_db.return_value = mock_db
@@ -120,7 +119,7 @@ def test_receive_webhook_rate_limited(client, mock_deps):
 
 
 def test_receive_webhook_duplicate(client, mock_deps):
-    mock_deps["db"].insert_message = AsyncMock(
+    mock_deps["db"].insert_message_and_touch_conversation = AsyncMock(
         side_effect=Exception("UNIQUE constraint failed: meta_message_id")
     )
 

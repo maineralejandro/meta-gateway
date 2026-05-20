@@ -126,11 +126,11 @@ async def test_persist_logs_error_on_db_failure():
     with patch("db.database.get_db", side_effect=RuntimeError("db down")), \
             patch("core.capabilities.cart.logger") as mock_logger:
         await inst._persist("56911111111")
-        mock_logger.error.assert_called_once_with(
-            "cart_persist_error", phone="56911111111", error="db down"
-        )
-        assert "56911111111" not in inst._carts
-        assert "56911111111" not in inst._loaded_phones
+    mock_logger.error.assert_called_once_with(
+        "cart_persist_error", phone="56911111111", error="db down"
+    )
+    assert "56911111111" in inst._carts
+    assert inst._carts["56911111111"]["total"] == 3700
 
 
 @pytest.mark.asyncio
@@ -141,11 +141,11 @@ async def test_clear_logs_error_on_db_failure():
     with patch("db.database.get_db", side_effect=RuntimeError("db down")), \
             patch("core.capabilities.cart.logger") as mock_logger:
         await inst.clear("56911111111")
-        mock_logger.error.assert_called_once_with(
-            "cart_clear_error", phone="56911111111", error="db down"
-        )
-        assert "56911111111" not in inst._carts
-        assert "56911111111" not in inst._loaded_phones
+    mock_logger.error.assert_called_once_with(
+        "cart_clear_error", phone="56911111111", error="db down"
+    )
+    assert "56911111111" not in inst._carts
+    assert "56911111111" in inst._loaded_phones
 
 
 @pytest.mark.asyncio
@@ -187,10 +187,10 @@ async def test_persist_failure_invalidates_cache():
     inst._carts["56944444444"] = {"items": [{"key": "item_a", "name": "Item A (regular)", "price": 3700, "quantity": 1}], "total": 3700}
     inst._loaded_phones.add("56944444444")
     with patch("db.database.get_db", side_effect=RuntimeError("db down")), \
-            patch("core.capabilities.cart.logger"):
+         patch("core.capabilities.cart.logger"):
         await inst._persist("56944444444")
-        assert "56944444444" not in inst._carts
-        assert "56944444444" not in inst._loaded_phones
+    assert "56944444444" in inst._carts
+    assert inst._carts["56944444444"]["total"] == 3700
 
 
 def test_get_catalog_returns_copy():

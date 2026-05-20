@@ -34,40 +34,18 @@ async def get_conversations(limit: int = 100, offset: int = 0) -> Any:
 @router.post("/state")
 async def update_state(req: UpdateStateRequest) -> dict[str, Any]:
     db = await get_db()
-
-    conv = await db.get_conversation(req.phone)
-    old_state = conv.state if conv else "BOT_ACTIVE"
-
-    ops: list[tuple[str, tuple[Any, ...]]] = []
-    if not conv:
-        ops = [
-            ("INSERT INTO conversations (phone, state, last_message_at) VALUES ($1, $2, NOW())",
-            (req.phone, req.state)),
-        ]
-    else:
-        ops = [
-            ("UPDATE conversations SET state=$1, requires_human_review=$2 WHERE phone=$3",
-            (req.state, req.state != "BOT_ACTIVE", req.phone)),
-        ]
-
-    if old_state != req.state:
-        ops.append(
-            ("INSERT INTO escalation_events (phone, from_state, to_state, reason) VALUES ($1, $2, $3, $4)",
-            (req.phone, old_state, req.state, "manual_change")),
-        )
-
-    await db.execute_transaction(ops)
+    result = await db.update_state_atomic(req.phone, req.state)
 
     await refresh_active_conversations(db)
 
     await emit("state-changed", {
         "phone": req.phone,
         "state": req.state,
-        "old_state": old_state,
+        "old_state": result["old_state"],
     })
 
-    logger.info("state_updated", phone=req.phone, old=old_state, new=req.state)
-    return {"status": "ok", "old_state": old_state, "new_state": req.state}
+    logger.info("state_updated", phone=req.phone, old=result["old_state"], new=req.state)
+    return {"status": "ok", "old_state": result["old_state"], "new_state": req.state}
 
 
 class ChangeAgentRequest(BaseModel):
@@ -104,15 +82,10 @@ async def reset_unread(phone: str) -> dict[str, str]:
 @router.post("/{phone}/close-session")
 async def close_session(phone: str, req: CloseSessionRequest) -> dict[str, Any]:
     db = await get_db()
-    conv = await db.get_conversation(phone)
+    session_id = await db.close_session_and_reset(phone, reason="manual", summary=req.summary)
 
-    if not conv or not conv.current_session_id:
+    if not session_id:
         return {"status": "error", "message": "No active session found"}
-
-    session_id = conv.current_session_id
-    await db.close_session(session_id, reason="manual", summary=req.summary)
-
-    await db.reset_conversation_session(phone)
 
     await refresh_active_conversations(db)
     await refresh_active_sessions(db)

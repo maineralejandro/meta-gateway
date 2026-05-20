@@ -139,6 +139,75 @@ class Database:
     async def create_session(self, phone: str) -> str:
         return await self.sessions.create(phone)
 
+    async def get_or_create_session_atomic(self, phone: str) -> str:
+        pool = await get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            row = await conn.fetchrow(
+                "SELECT state, current_session_id, last_message_at, agent_id FROM conversations WHERE phone=$1 FOR UPDATE",
+                phone,
+            )
+            if not row:
+                import uuid
+                session_id = str(uuid.uuid4())
+                await conn.execute(
+                    "INSERT INTO conversations (phone, state, agent_id, last_message_at) VALUES ($1, 'BOT_ACTIVE', 1, NOW())",
+                    phone,
+                )
+                await conn.execute(
+                    "INSERT INTO sessions (id, phone) VALUES ($1, $2)",
+                    session_id, phone,
+                )
+                await conn.execute(
+                    "UPDATE conversations SET current_session_id=$1 WHERE phone=$2",
+                    session_id, phone,
+                )
+                return session_id
+
+            if not row["current_session_id"]:
+                import uuid
+                session_id = str(uuid.uuid4())
+                await conn.execute(
+                    "INSERT INTO sessions (id, phone) VALUES ($1, $2)",
+                    session_id, phone,
+                )
+                await conn.execute(
+                    "UPDATE conversations SET current_session_id=$1 WHERE phone=$2",
+                    session_id, phone,
+                )
+                return session_id
+
+            return str(row["current_session_id"])
+
+    async def expire_and_create_session_atomic(
+        self, phone: str, old_session_id: str, agent_id: int | None, new_state: str | None = None
+    ) -> str:
+        import uuid
+        session_id = str(uuid.uuid4())
+        pool = await get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            await conn.fetchrow(
+                "SELECT phone FROM conversations WHERE phone=$1 FOR UPDATE",
+                phone,
+            )
+            await conn.execute(
+                "UPDATE sessions SET ended_at=NOW(), end_reason=$1 WHERE id=$2",
+                "timeout", old_session_id,
+            )
+            if new_state and new_state != "BOT_ACTIVE":
+                await conn.execute(
+                    "UPDATE conversations SET state='BOT_ACTIVE', requires_human_review=FALSE WHERE phone=$1",
+                    phone,
+                )
+            await conn.execute(
+                "INSERT INTO sessions (id, phone) VALUES ($1, $2)",
+                session_id, phone,
+            )
+            await conn.execute(
+                "UPDATE conversations SET current_session_id=$1 WHERE phone=$2",
+                session_id, phone,
+            )
+        return session_id
+
     async def get_active_session(self, phone: str) -> Session | None:
         return await self.sessions.get_active(phone)
 
@@ -160,6 +229,33 @@ class Database:
         return await self.messages.insert(
             phone, direction, source, text, session_id, media_type, media_url, meta_message_id, correlation_id,
         )
+
+    async def insert_message_and_touch_conversation(
+        self,
+        phone: str,
+        direction: str,
+        source: str,
+        text: str,
+        session_id: str | None = None,
+        media_type: str | None = None,
+        media_url: str | None = None,
+        meta_message_id: str | None = None,
+        correlation_id: str | None = None,
+    ) -> int:
+        pool = await get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            row = await conn.fetchrow(
+                """INSERT INTO messages (phone, direction, source, text, media_type, media_url, meta_message_id, session_id, correlation_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id""",
+                phone, direction, source, text,
+                media_type, media_url, meta_message_id, session_id, correlation_id,
+            )
+            message_id = row["id"]
+            await conn.execute(
+                "UPDATE conversations SET last_message_at=NOW(), unread_count=unread_count+1 WHERE phone=$1",
+                phone,
+            )
+            return int(message_id)
 
     async def escalate_conversation(
         self, phone: str, sentiment_score: float, confidence: float, reason: str
@@ -334,6 +430,53 @@ class Database:
 
     async def get_template(self, template_id: int) -> AgentTemplate | None:
         return await self.agent_templates.get(template_id)
+
+    async def close_session_and_reset(self, phone: str, reason: str, summary: str | None = None) -> str | None:
+        pool = await get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            row = await conn.fetchrow(
+                "SELECT current_session_id FROM conversations WHERE phone=$1 FOR UPDATE",
+                phone,
+            )
+            if not row or not row["current_session_id"]:
+                return None
+            session_id = row["current_session_id"]
+            await conn.execute(
+                "UPDATE sessions SET ended_at=NOW(), end_reason=$1, summary=$2 WHERE id=$3",
+                reason, summary, session_id,
+            )
+            await conn.execute(
+                "UPDATE conversations SET current_session_id=NULL, state='BOT_ACTIVE', requires_human_review=FALSE WHERE phone=$1",
+                phone,
+            )
+            return str(session_id)
+
+    async def update_state_atomic(self, phone: str, new_state: str) -> dict[str, str]:
+        pool = await get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            row = await conn.fetchrow(
+                "SELECT state FROM conversations WHERE phone=$1 FOR UPDATE",
+                phone,
+            )
+            old_state = row["state"] if row else "BOT_ACTIVE"
+
+            if not row:
+                await conn.execute(
+                    "INSERT INTO conversations (phone, state, last_message_at) VALUES ($1, $2, NOW())",
+                    phone, new_state,
+                )
+            else:
+                await conn.execute(
+                    "UPDATE conversations SET state=$1, requires_human_review=$2 WHERE phone=$3",
+                    new_state, new_state != "BOT_ACTIVE", phone,
+                )
+
+            if old_state != new_state:
+                await conn.execute(
+                    "INSERT INTO escalation_events (phone, from_state, to_state, reason) VALUES ($1, $2, $3, $4)",
+                    phone, old_state, new_state, "manual_change",
+                )
+        return {"old_state": old_state, "new_state": new_state}
 
     async def close(self) -> None:
         await close_pool()

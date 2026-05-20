@@ -104,15 +104,12 @@ async def _handle_message(msg: dict[str, Any], value: dict[str, Any], correlatio
     session_id = await session_manager.get_or_create_session(phone)
 
     try:
-        message_id = await db.insert_message(
+        message_id = await db.insert_message_and_touch_conversation(
             phone, "inbound", "customer", text,
             media_type=media_type, media_url=media_url,
             meta_message_id=meta_msg_id, session_id=session_id,
             correlation_id=correlation_id,
         )
-        await db.execute_transaction([
-            ("UPDATE conversations SET last_message_at=NOW(), unread_count=unread_count+1 WHERE phone=$1", (phone,)),
-        ])
     except Exception as e:
         if ("unique" in str(e).lower() or "UNIQUE constraint" in str(e)) and "meta_message_id" in str(e):
             WEBHOOK_DUPLICATES.inc()
