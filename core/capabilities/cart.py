@@ -12,10 +12,11 @@ from core.utils import slugify
 logger = structlog.get_logger()
 
 
-_FLAT_TOOLS: set[str] = {"cart_add", "cart_remove", "cart_clear", "catalog_list"}
+_FLAT_TOOLS: set[str] = {"cart_add", "cart_remove", "cart_clear", "catalog_list", "send_product_image", "show_category_menu"}
 _SEARCH_TOOLS: set[str] = {
     "cart_add", "cart_remove", "cart_clear",
     "catalog_search", "catalog_categories", "catalog_list",
+    "send_product_image", "show_category_menu",
 }
 
 _SEARCH_ADD_DESCRIPTION = (
@@ -36,7 +37,7 @@ _SEARCH_ADD_DESCRIPTION = (
 class CartCapability(BaseCapability):
     name = "cart"
     description = "Cart management with catalog items and cart tracking"
-    PARALLEL_SAFE_TOOLS: ClassVar[set[str]] = {"catalog_list", "catalog_search", "catalog_categories"}
+    PARALLEL_SAFE_TOOLS: ClassVar[set[str]] = {"catalog_list", "catalog_search", "catalog_categories", "send_product_image", "show_category_menu"}
     SEQUENTIAL_TOOLS: ClassVar[set[str]] = {"cart_add", "cart_remove", "cart_clear"}
 
     _BASE_ADD_DESCRIPTION = (
@@ -111,7 +112,7 @@ class CartCapability(BaseCapability):
                 item_variants = variants_by_item.get(key, [])
 
                 common_fields: dict[str, Any] = {}
-                for field in ("description", "size", "specifications"):
+                for field in ("description", "size", "specifications", "image_url"):
                     val = row.get(field)
                     if val:
                         common_fields[field] = val
@@ -328,15 +329,47 @@ class CartCapability(BaseCapability):
             "parameters": {"type": "object", "properties": {}},
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "catalog_list",
-                    "description": "Obtener el catalogo disponible con nombres, claves y precios. Usar cuando el cliente pregunta por productos o precios.",
-                    "parameters": {"type": "object", "properties": {}},
+        {
+            "type": "function",
+            "function": {
+                "name": "catalog_list",
+                "description": "Obtener el catalogo disponible con nombres, claves y precios. Usar cuando el cliente pregunta por productos o precios.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "send_product_image",
+                "description": (
+                    "Envia la imagen de un producto del catalogo al cliente por WhatsApp. "
+                    "Usa esta herramienta cuando el cliente pida ver una foto del producto "
+                    "o cuando quieras mostrar visualmente un producto destacado. "
+                    "Solo funciona para productos que tengan imagen configurada."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "item_key": item_key_prop,
+                    },
+                    "required": ["item_key"],
                 },
             },
-        ]
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "show_category_menu",
+                "description": (
+                    "Muestra un menu interactivo con las categorias del catalogo. "
+                    "El cliente puede seleccionar una categoria para ver sus productos. "
+                    "Usa esta herramienta cuando el cliente quiera explorar el catalogo "
+                    "o no sepa que buscar."
+                ),
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    ]
 
     def _search_mode_definitions(self) -> list[dict[str, Any]]:
         item_key_prop: dict[str, Any] = {
@@ -433,21 +466,53 @@ class CartCapability(BaseCapability):
                     },
                 },
             },
-            {
-                "type": "function",
-                "function": {
-            "name": "cart_clear",
-            "description": (
-                "Llama esta funcion cuando el cliente quiera cancelar o vaciar "
-                "su carrito completo. Ejemplos: 'cancela todo', 'limpia mi carrito', "
-                "'borra el carrito', 'vacia el carrito', 'quiero empezar de nuevo'. "
-                "NO la uses si el cliente solo quiere quitar un item (usa cart_remove). "
-                "NO pidas confirmacion si la intencion del cliente es clara."
-            ),
-                    "parameters": {"type": "object", "properties": {}},
+        {
+            "type": "function",
+            "function": {
+                "name": "cart_clear",
+                "description": (
+                    "Llama esta funcion cuando el cliente quiera cancelar o vaciar "
+                    "su carrito completo. Ejemplos: 'cancela todo', 'limpia mi carrito', "
+                    "'borra el carrito', 'vacia el carrito', 'quiero empezar de nuevo'. "
+                    "NO la uses si el cliente solo quiere quitar un item (usa cart_remove). "
+                    "NO pidas confirmacion si la intencion del cliente es clara."
+                ),
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "send_product_image",
+                "description": (
+                    "Envia la imagen de un producto del catalogo al cliente por WhatsApp. "
+                    "Usa esta herramienta cuando el cliente pida ver una foto del producto "
+                    "o cuando quieras mostrar visualmente un producto destacado. "
+                    "Solo funciona para productos que tengan imagen configurada."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "item_key": item_key_prop,
+                    },
+                    "required": ["item_key"],
                 },
             },
-        ]
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "show_category_menu",
+                "description": (
+                    "Muestra un menu interactivo con las categorias del catalogo. "
+                    "El cliente puede seleccionar una categoria para ver sus productos. "
+                    "Usa esta herramienta cuando el cliente quiera explorar el catalogo "
+                    "o no sepa que buscar."
+                ),
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    ]
 
     def get_tool_names(self) -> set[str]:
         return _SEARCH_TOOLS if self.needs_search else _FLAT_TOOLS
@@ -472,6 +537,10 @@ class CartCapability(BaseCapability):
             return self._execute_catalog_search(args)
         if name == "catalog_categories":
             return self._execute_catalog_categories()
+        if name == "send_product_image":
+            return await self._execute_send_product_image(args, phone)
+        if name == "show_category_menu":
+            return await self._execute_show_category_menu(phone)
         return {"success": False, "error": f"Unknown tool: {name}"}
 
     async def _execute_add(self, args: dict[str, Any], phone: str) -> dict[str, Any]:
@@ -576,6 +645,57 @@ class CartCapability(BaseCapability):
         categories = self._search.get_categories()
         return {"success": True, "action": "catalog_categories", "categories": categories}
 
+    async def _execute_send_product_image(self, args: dict[str, Any], phone: str) -> dict[str, Any]:
+        item_key = args.get("item_key", "")
+        if not item_key:
+            return {"success": False, "error": "item_key is required", "instruction": "Proporciona el item_key del producto."}
+        await self._ensure_loaded(phone)
+        catalog_item = self._catalog.get(item_key)
+        if not catalog_item:
+            return {"success": False, "error": f"item_key '{item_key}' not found", "instruction": "Usa catalog_search o catalog_list para encontrar el item_key correcto."}
+        image_url = catalog_item.get("image_url")
+        if not image_url:
+            return {"success": False, "error": f"El producto '{catalog_item['name']}' no tiene imagen configurada.", "instruction": "Informa al cliente que este producto no tiene imagen disponible."}
+        try:
+            from core.meta_client import meta_client
+            caption = f"{catalog_item['name']} - ${catalog_item['price']:,}"
+            result = await meta_client.send_image(phone, image_url, caption=caption)
+            if result.get("error"):
+                return {"success": False, "error": f"Error enviando imagen: {result.get('detail', 'unknown')}", "instruction": "Informa al cliente que hubo un error enviando la imagen."}
+            return {"success": True, "action": "send_product_image", "item_key": item_key, "image_url": image_url}
+        except Exception as e:
+            logger.error("send_product_image_error", phone=phone, item_key=item_key, error=str(e))
+            return {"success": False, "error": f"Error enviando imagen: {e!s}", "instruction": "Informa al cliente que hubo un error enviando la imagen."}
+
+    async def _execute_show_category_menu(self, phone: str) -> dict[str, Any]:
+        await self._ensure_loaded(phone)
+        categories = self._search.get_categories()
+        if not categories:
+            return {"success": False, "error": "No hay categorias disponibles.", "instruction": "Informa al cliente que el catalogo no esta disponible."}
+        try:
+            from core.meta_client import meta_client
+            sections = []
+            rows = []
+            for cat in categories[:10]:
+                cat_name = cat.get("name", str(cat.get("category", "")))
+                cat_key = cat.get("category", cat_name)
+                count = cat.get("item_count", 0)
+                rows.append({
+                    "id": f"category_{cat_key}",
+                    "title": cat_name,
+                    "description": f"{count} producto{'s' if count != 1 else ''}",
+                })
+            if rows:
+                sections.append({"title": "Categorias", "rows": rows})
+            body_text = "Selecciona una categoria para ver sus productos:"
+            result = await meta_client.send_interactive_list(phone, body_text, "Ver categorias", sections)
+            if result.get("error"):
+                return {"success": False, "error": f"Error enviando menu: {result.get('detail', 'unknown')}", "instruction": "Informa al cliente que hubo un error mostrando el menu."}
+            return {"success": True, "action": "show_category_menu", "categories": categories}
+        except Exception as e:
+            logger.error("show_category_menu_error", phone=phone, error=str(e))
+            return {"success": False, "error": f"Error enviando menu: {e!s}", "instruction": "Informa al cliente que hubo un error mostrando el menu."}
+
     async def add_item(
         self,
         phone: str,
@@ -655,7 +775,10 @@ class CartCapability(BaseCapability):
         else:
             cat_lines = ["Catalogo disponible (usa estas claves exactas en item_key):"]
             for key, info in sorted(self._catalog.items()):
-                cat_lines.append(f"- {key}: {info['name']} (${info['price']:,})")
+                line = f"- {key}: {info['name']} (${info['price']:,})"
+                if info.get("image_url"):
+                    line += f" [IMG: {info['image_url']}]"
+                cat_lines.append(line)
             lines.append("\n".join(cat_lines))
 
         active_promos = self._get_active_promotions()

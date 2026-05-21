@@ -212,6 +212,35 @@ class AppointmentCapability(BaseCapability):
         self._appointments[phone].append(new_appt)
         await self._persist_appointment(phone, date, time, service_key)
         logger.info("appointment_added", phone=phone, date=date, time=time, service=service_key)
+        await self._schedule_reminder(phone, date, time, service_key)
+
+    async def _schedule_reminder(self, phone: str, date: str, time: str, service_key: str) -> None:
+        try:
+            from core.scheduler import message_scheduler
+            appointment_dt = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
+            reminder_dt = appointment_dt - timedelta(hours=24)
+            from datetime import UTC as _UTC
+            naive_utc = datetime.now(tz=_UTC).replace(tzinfo=None)
+            if reminder_dt <= naive_utc:
+                logger.info("appointment_reminder_skipped_past", phone=phone, date=date, time=time)
+                return
+            import json
+            components = json.dumps([{
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": date},
+                    {"type": "text", "text": time},
+                ],
+            }])
+            await message_scheduler.schedule(
+                phone=phone,
+                template_name="appointment_reminder",
+                scheduled_at=reminder_dt.isoformat(),
+                components_json=components,
+            )
+            logger.info("appointment_reminder_scheduled", phone=phone, date=date, time=time, reminder_at=reminder_dt.isoformat())
+        except Exception as e:
+            logger.warning("appointment_reminder_schedule_failed", phone=phone, error=str(e))
 
     async def cancel_appointment(self, phone: str, date: str, time: str) -> None:
         await self._ensure_loaded(phone)

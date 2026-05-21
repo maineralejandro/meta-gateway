@@ -84,7 +84,8 @@ class CatalogSearch:
             if cat_data["min_price"] == float("inf"):
                 cat_data["min_price"] = 0
         tokenized = [tokenize(doc) for doc in self._docs]
-        self._bm25 = BM25Okapi(tokenized)
+        if tokenized:
+            self._bm25 = BM25Okapi(tokenized)
         logger.info("catalog_search_index_built", items=len(self._keys), categories=len(self._categories))
 
     def search(self, query: str, top_k: int = 5, min_score: float = 0.01) -> list[dict[str, Any]]:

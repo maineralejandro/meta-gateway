@@ -34,8 +34,8 @@ class CatalogRepository(BaseRepository):
     async def load_items(self) -> list[dict[str, Any]]:
         rows = await self._fetchall(
             "SELECT key, name, price, category, is_available, sort_order, "
-            "description, tags, size, specifications, base_price, subcategory "
-            "FROM catalog_items ORDER BY sort_order"
+            "description, tags, size, specifications, base_price, subcategory, "
+            "image_url FROM catalog_items ORDER BY sort_order"
         )
         return [dict(row) for row in rows]
 
@@ -45,19 +45,20 @@ class CatalogRepository(BaseRepository):
         description: str = "", tags: str = "[]", size: str = "",
         specifications: str = "",
         subcategory: str = "", base_price: int | None = None,
+        image_url: str | None = None,
     ) -> None:
         await self._execute(
             """INSERT INTO catalog_items (key, name, price, category, subcategory, base_price,
-            is_available, sort_order, description, tags, size, specifications, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, NOW())
+            is_available, sort_order, description, tags, size, specifications, image_url, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, NOW())
             ON CONFLICT (key) DO UPDATE SET
             name=excluded.name, price=excluded.price, category=excluded.category,
             subcategory=excluded.subcategory, base_price=excluded.base_price,
             is_available=excluded.is_available, sort_order=excluded.sort_order,
             description=excluded.description, tags=excluded.tags, size=excluded.size,
-            specifications=excluded.specifications, updated_at=NOW()""",
+            specifications=excluded.specifications, image_url=excluded.image_url, updated_at=NOW()""",
             key, name, price, category, subcategory, base_price,
-            is_available, sort_order, description, tags, size, specifications,
+            is_available, sort_order, description, tags, size, specifications, image_url,
         )
 
 
