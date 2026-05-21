@@ -40,6 +40,8 @@ def mock_deps():
         mock_db.insert_message_and_touch_conversation = AsyncMock(return_value=1)
         mock_db.increment_session_message_count = AsyncMock()
         mock_db.create_conversation = AsyncMock()
+        mock_db.update_conversation_state = AsyncMock()
+        mock_db.execute = AsyncMock()
         mock_get_db.return_value = mock_db
 
         yield {
@@ -356,3 +358,134 @@ def test_receive_webhook_mark_read_failure_doesnt_block(client, mock_deps):
     response = client.post("/webhook/whatsapp", json=body)
     assert response.status_code == 200
     assert response.json()["status"] == "processing"
+
+
+def test_receive_webhook_interactive_button_reply(client, mock_deps):
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "56912345678",
+                        "id": "wamid_btn_001",
+                        "type": "interactive",
+                        "interactive": {
+                            "type": "button_reply",
+                            "button_reply": {"id": "yes", "title": "Sí"},
+                        },
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "processing"
+    call_args = mock_deps["db"].insert_message_and_touch_conversation.call_args
+    assert call_args[1].get("text") == "Sí" or call_args[0][3] == "Sí"
+    assert call_args[1].get("media_type") == "interactive_button" or call_args[1].get("media_url") == "yes"
+
+
+def test_receive_webhook_interactive_list_reply(client, mock_deps):
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "56912345678",
+                        "id": "wamid_list_001",
+                        "type": "interactive",
+                        "interactive": {
+                            "type": "list_reply",
+                            "list_reply": {"id": "frutilla", "title": "Frutilla 1kg"},
+                        },
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "processing"
+    call_args = mock_deps["db"].insert_message_and_touch_conversation.call_args
+    assert call_args[1].get("text") == "Frutilla 1kg" or call_args[0][3] == "Frutilla 1kg"
+
+
+def test_receive_webhook_continue_with_bot_button(client, mock_deps):
+    mock_deps["db"].fetchone = AsyncMock(return_value={"state": "PENDING_APPROVAL", "requires_human_review": False})
+
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "56912345678",
+                        "id": "wamid_continue",
+                        "type": "interactive",
+                        "interactive": {
+                            "type": "button_reply",
+                            "button_reply": {"id": "continue_with_bot", "title": "Seguir con el bot"},
+                        },
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "processing"
+    mock_deps["db"].update_conversation_state.assert_called_once_with(
+        "56912345678", "BOT_ACTIVE", requires_human_review=False
+    )
+
+
+def test_receive_webhook_status_persisted(client, mock_deps):
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "statuses": [{
+                        "status": "delivered",
+                        "id": "wamid_status_002",
+                        "recipient_id": "56912345678",
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    mock_deps["db"].execute.assert_called_once()
+
+
+def test_receive_webhook_category_list_reply(client, mock_deps):
+    body = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "56912345678",
+                        "id": "wamid_cat_001",
+                        "type": "interactive",
+                        "interactive": {
+                            "type": "list_reply",
+                            "list_reply": {"id": "category_food", "title": "Comida"},
+                        },
+                    }]
+                }
+            }]
+        }]
+    }
+
+    response = client.post("/webhook/whatsapp", json=body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "processing"
+    call_args = mock_deps["db"].insert_message_and_touch_conversation.call_args
+    text = call_args[1].get("text") or call_args[0][3]
+    assert "categoria" in text.lower()
+    assert "Comida" in text

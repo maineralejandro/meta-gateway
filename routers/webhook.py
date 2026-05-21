@@ -70,23 +70,80 @@ async def _handle_message(msg: dict[str, Any], value: dict[str, Any], correlatio
     text = ""
     media_type = None
     media_url = None
+    product_list_reply_key: str | None = None
 
     if msg_type == "text":
         text = msg.get("text", {}).get("body", "")
+    elif msg_type == "interactive":
+        interactive = msg.get("interactive", {})
+        interactive_type = interactive.get("type", "")
+        if interactive_type == "button_reply":
+            reply = interactive.get("button_reply", {})
+            text = reply.get("title", reply.get("id", ""))
+            media_type = "interactive_button"
+            media_url = reply.get("id")
+            if media_url and media_url.startswith("add_to_cart_"):
+                item_key = media_url[len("add_to_cart_"):]
+                try:
+                    from core.cart_state import cart_state
+                    await cart_state.add_item(phone, item_key, 1)
+                    item_name = cart_state._catalog.get(item_key, {}).get("name", item_key)
+                    text = f"Quiero agregar {item_name} al carrito"
+                except Exception as e:
+                    logger.warning("add_to_cart_button_failed", phone=phone, item_key=item_key, error=str(e))
+            elif media_url and media_url.startswith("view_details_"):
+                item_key = media_url[len("view_details_"):]
+                text = f"Quiero ver detalles de {item_key}"
+        elif interactive_type == "list_reply":
+            reply = interactive.get("list_reply", {})
+            text = reply.get("title", reply.get("id", ""))
+            media_type = "interactive_list"
+            media_url = reply.get("id")
+            if media_url and media_url.startswith("category_"):
+                text = f"Quiero ver la categoria {text}"
+            elif media_url and not media_url.startswith("category_"):
+                product_list_reply_key = media_url
+        else:
+            text = f"[interactive:{interactive_type}]"
+            media_type = "interactive"
     else:
         text = f"[{msg_type}]"
         media_type = msg_type
-    if msg_type == "image":
-        media_url = msg.get("image", {}).get("id", "")
-    elif msg_type == "document":
-        media_url = msg.get("document", {}).get("id", "")
-    elif msg_type == "audio":
-        media_url = msg.get("audio", {}).get("id", "")
-    elif msg_type == "location":
-        loc = msg.get("location", {})
-        text = f"[location] {loc.get('name', '')} {loc.get('latitude')},{loc.get('longitude')}"
+        if msg_type == "image":
+            media_url = msg.get("image", {}).get("id", "")
+        elif msg_type == "document":
+            media_url = msg.get("document", {}).get("id", "")
+        elif msg_type == "audio":
+            media_url = msg.get("audio", {}).get("id", "")
+        elif msg_type == "location":
+            loc = msg.get("location", {})
+            text = f"[location] {loc.get('name', '')} {loc.get('latitude')},{loc.get('longitude')}"
 
     db = await get_db()
+
+    if product_list_reply_key:
+        try:
+            from core.cart_state import cart_state
+            catalog = cart_state.get_catalog()
+            if product_list_reply_key in catalog:
+                item_name = catalog[product_list_reply_key].get("name", text)
+                price = catalog[product_list_reply_key].get("price", 0)
+                await meta_client.send_interactive_buttons(
+                    phone,
+                    f"{item_name} - ${price:,}",
+                    [
+                        {"id": f"add_to_cart_{product_list_reply_key}", "title": "Agregar al carrito"},
+                        {"id": f"view_details_{product_list_reply_key}", "title": "Ver detalles"},
+                    ],
+                )
+                session_id = await session_manager.get_or_create_session(phone)
+                await db.insert_message_and_touch_conversation(
+                    phone, "outbound", "bot", f"[interactive buttons: add_to_cart / view_details for {product_list_reply_key}]",
+                    media_type="interactive_button", session_id=session_id, correlation_id=correlation_id,
+                )
+                return {"status": "action_buttons_sent"}
+        except Exception as e:
+            logger.warning("product_list_reply_buttons_failed", phone=phone, error=str(e))
 
     row = await db.fetchone(
         "SELECT state, requires_human_review FROM conversations WHERE phone=$1",
@@ -128,10 +185,20 @@ async def _handle_message(msg: dict[str, Any], value: dict[str, Any], correlatio
     })
 
     if state == "HUMAN_ONLY" or requires_human:
-        await emit("waiting-for-human", {"phone": phone})
-        return {"status": "pending_human"}
+        if media_type == "interactive_button" and media_url == "continue_with_bot":
+            await db.update_conversation_state(phone, "BOT_ACTIVE", requires_human_review=False)
+            await emit("state-changed", {"phone": phone, "state": "BOT_ACTIVE"})
+            state = "BOT_ACTIVE"
+        else:
+            await emit("waiting-for-human", {"phone": phone})
+            return {"status": "pending_human"}
     if state == "PENDING_APPROVAL":
-        return {"status": "pending_approval"}
+        if media_type == "interactive_button" and media_url == "continue_with_bot":
+            await db.update_conversation_state(phone, "BOT_ACTIVE", requires_human_review=False)
+            await emit("state-changed", {"phone": phone, "state": "BOT_ACTIVE"})
+            state = "BOT_ACTIVE"
+        else:
+            return {"status": "pending_approval"}
     await turn_builder.debounce(phone, text, correlation_id=correlation_id, message_id=message_id, session_id=session_id)
     return {"status": "processing"}
 
@@ -151,8 +218,39 @@ async def _receive_webhook_inner(request: Request, correlation_id: str = "") -> 
                     return await _handle_message(value["messages"][0], value, correlation_id)
 
                 if "statuses" in value:
-                    status = value["statuses"][0]
-                    logger.info("message_status", status=status.get("status"), id=status.get("id"))
+                    status_entry = value["statuses"][0]
+                    status_val = status_entry.get("status")
+                    msg_id = status_entry.get("id")
+                    recipient_phone = status_entry.get("recipient_id")
+                    logger.info("message_status", status=status_val, id=msg_id)
+                try:
+                    db = await get_db()
+                    await db.execute(
+                        "UPDATE messages SET meta_status=$1, meta_status_at=NOW() WHERE meta_message_id=$2",
+                        status_val, msg_id,
+                    )
+                except Exception as e:
+                    logger.warning("status_persist_failed", msg_id=msg_id, error=str(e))
+                if status_val == "delivered" and recipient_phone:
+                    try:
+                        from datetime import UTC, datetime, timedelta
+
+                        from core.scheduler import message_scheduler
+                        scheduled_at = (datetime.now(tz=UTC) + timedelta(minutes=settings.FOLLOW_UP_DELAY_MINUTES)).isoformat()
+                        await message_scheduler.schedule(
+                            phone=recipient_phone,
+                            template_name="follow_up",
+                            scheduled_at=scheduled_at,
+                            triggered_by_message_id=msg_id,
+                        )
+                    except Exception as e:
+                        logger.warning("follow_up_schedule_failed", phone=recipient_phone, error=str(e))
+                    if recipient_phone:
+                        await emit("message-status", {
+                            "phone": recipient_phone,
+                            "message_id": msg_id,
+                            "status": status_val,
+                        })
                     return {"status": "ok"}
 
     except Exception as e:

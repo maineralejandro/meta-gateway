@@ -180,5 +180,18 @@ export function buildWSHandlers(deps: WSHandlersDeps): Record<string, (data: any
     'error': (data: any) => {
       console.error('WS error event', data)
     },
+
+    'message-status': (data: any) => {
+      if (data.phone === selectedPhone) {
+        setMessages(prev =>
+          prev.map(m => {
+            if (m.meta_message_id === data.message_id || `meta-${m.id}` === data.message_id) {
+              return { ...m, meta_status: data.status }
+            }
+            return m
+          })
+        )
+      }
+    },
   }
 }

@@ -82,6 +82,12 @@ class HITLRouter:
             return self._meta_client
         return meta_client
 
+    async def _can_send_free_form(self, phone: str, db: Any) -> bool:
+        return await _can_send_free_form(phone, db)
+
+    async def _select_template_for_reply(self, reply_text: str, db: Any) -> dict[str, Any] | None:
+        return await _select_template_for_reply(reply_text, db)
+
     async def should_escalate(
         self, sentiment_result: dict[str, Any], text: str, llm_escalate: bool, trace: dict[str, Any] | None = None
     ) -> tuple[bool, str]:
@@ -257,7 +263,17 @@ class HITLRouter:
             session_id=session_id, correlation_id=correlation_id,
         )
         client = self._get_meta_client()
-        await client.send_text(phone, escalation_msg)
+        try:
+            await client.send_interactive_buttons(
+                phone,
+                escalation_msg,
+                [
+                    {"id": "wait_for_human", "title": "Esperar operador"},
+                    {"id": "continue_with_bot", "title": "Seguir con el bot"},
+                ],
+            )
+        except Exception:
+            await client.send_text(phone, escalation_msg)
         MESSAGES_SENT.labels(source="bot").inc()
 
         await db.insert_turn(Turn(
@@ -307,7 +323,15 @@ class HITLRouter:
             session_id=session_id, correlation_id=correlation_id,
         )
         client = self._get_meta_client()
-        await client.send_text(phone, response_text)
+        if await self._can_send_free_form(phone, db):
+            await client.send_text(phone, response_text)
+        else:
+            template = await self._select_template_for_reply(response_text, db)
+            if template:
+                await client.send_template(phone, template["name"], components=template.get("components"))
+            else:
+                logger.warning("no_template_for_offline_reply", phone=phone)
+                await client.send_text(phone, response_text)
         MESSAGES_SENT.labels(source="bot").inc()
 
         await db.insert_turn(Turn(
@@ -408,6 +432,49 @@ class HITLRouter:
 
 
 hitl_router = HITLRouter()
+
+_TEMPLATE_KEYWORD_MAP: dict[str, list[str]] = {
+    "order_confirmation": ["pedido", "confirmado", "orden", "total"],
+    "appointment_reminder": ["cita", "recordatorio", "hora"],
+    "follow_up": ["necesitas", "ayuda"],
+}
+
+
+async def _can_send_free_form(phone: str, db: Any) -> bool:
+    from datetime import UTC, datetime
+    conv = await db.get_conversation(phone)
+    if not conv or not conv.last_message_at:
+        return False
+    lma = conv.last_message_at
+    if isinstance(lma, str):
+        try:
+            lma_dt = datetime.fromisoformat(lma)
+            if lma_dt.tzinfo is None:
+                lma_dt = lma_dt.replace(tzinfo=UTC)
+            elapsed = (datetime.now(tz=UTC) - lma_dt).total_seconds()
+            return elapsed < 86400
+        except (ValueError, TypeError):
+            return True
+    if isinstance(lma, datetime):
+        elapsed = (datetime.now(tz=UTC) - lma).total_seconds()
+        return bool(elapsed < 86400)
+    return True
+
+
+async def _select_template_for_reply(reply_text: str, db: Any) -> dict[str, Any] | None:
+    text_lower = reply_text.lower()
+    for template_name, keywords in _TEMPLATE_KEYWORD_MAP.items():
+        if any(kw in text_lower for kw in keywords):
+            t = await db.whatsapp_templates.get_by_name(template_name)
+            if t and t.status == "APPROVED":
+                return {"name": t.template_name, "components": []}
+    greeting = await db.whatsapp_templates.get_by_name("greeting")
+    if greeting and greeting.status == "APPROVED":
+        return {"name": "greeting", "components": []}
+    approved = await db.whatsapp_templates.get_all(status="APPROVED")
+    if approved:
+        return {"name": approved[0].template_name, "components": []}
+    return None
 
 
 async def process_inbound_message(phone: str, text: str, correlation_id: str | None = None) -> None:
