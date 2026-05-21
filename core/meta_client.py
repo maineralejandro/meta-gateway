@@ -79,6 +79,165 @@ class MetaAPIClient:
     async def send_message(self, phone: str, text: str) -> dict[str, Any]:
         return await self.send_text(phone, text)
 
+    async def send_interactive_buttons(
+        self,
+        phone: str,
+        body_text: str,
+        buttons: list[dict[str, str]],
+    ) -> dict[str, Any]:
+        if len(buttons) > 3:
+            logger.warning("interactive_buttons_truncated", count=len(buttons), max=3)
+            buttons = buttons[:3]
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": phone,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": body_text},
+                "action": {
+                    "buttons": [
+                        {
+                            "type": "reply",
+                            "reply": {"id": b["id"], "title": b["title"]},
+                        }
+                        for b in buttons
+                    ]
+                },
+            },
+        }
+        client = await self._get_client()
+        resp = await client.post(f"{self.base_url}/messages", json=payload)
+        if resp.status_code >= 400:
+            error_body = resp.text
+            self._log_auth_error(resp.status_code, error_body)
+            return {"error": True, "status": resp.status_code, "detail": error_body}
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def send_interactive_list(
+        self,
+        phone: str,
+        body_text: str,
+        button_text: str,
+        sections: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        total_rows = sum(len(s.get("rows", [])) for s in sections)
+        if total_rows > 10:
+            logger.warning("interactive_list_truncated", total_rows=total_rows, max=10)
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": phone,
+            "type": "interactive",
+            "interactive": {
+                "type": "list",
+                "body": {"text": body_text},
+                "action": {
+                    "button": button_text,
+                    "sections": sections,
+                },
+            },
+        }
+        client = await self._get_client()
+        resp = await client.post(f"{self.base_url}/messages", json=payload)
+        if resp.status_code >= 400:
+            error_body = resp.text
+            self._log_auth_error(resp.status_code, error_body)
+            return {"error": True, "status": resp.status_code, "detail": error_body}
+        result2: dict[str, Any] = resp.json()
+        return result2
+
+    async def send_image(
+        self,
+        phone: str,
+        image_url: str,
+        caption: str = "",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "messaging_product": "whatsapp",
+            "to": phone,
+            "type": "image",
+            "image": {"url": image_url},
+        }
+        if caption:
+            payload["image"]["caption"] = caption
+        client = await self._get_client()
+        resp = await client.post(f"{self.base_url}/messages", json=payload)
+        if resp.status_code >= 400:
+            error_body = resp.text
+            self._log_auth_error(resp.status_code, error_body)
+            return {"error": True, "status": resp.status_code, "detail": error_body}
+        result_img: dict[str, Any] = resp.json()
+        return result_img
+
+    async def send_template(
+        self,
+        phone: str,
+        template_name: str,
+        language: str = "es",
+        components: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "messaging_product": "whatsapp",
+            "to": phone,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {"code": language},
+            },
+        }
+        if components:
+            payload["template"]["components"] = components
+        client = await self._get_client()
+        resp = await client.post(f"{self.base_url}/messages", json=payload)
+        if resp.status_code >= 400:
+            error_body = resp.text
+            self._log_auth_error(resp.status_code, error_body)
+            return {"error": True, "status": resp.status_code, "detail": error_body}
+        result3: dict[str, Any] = resp.json()
+        return result3
+
+    async def create_template(self, waba_id: str, template_data: dict[str, Any]) -> dict[str, Any]:
+        client = await self._get_client()
+        resp = await client.post(
+            f"{settings.META_API_URL}/{waba_id}/message_templates",
+            json=template_data,
+        )
+        if resp.status_code >= 400:
+            error_body = resp.text
+            self._log_auth_error(resp.status_code, error_body)
+            return {"error": True, "status": resp.status_code, "detail": error_body}
+        result4: dict[str, Any] = resp.json()
+        return result4
+
+    async def delete_template(self, waba_id: str, template_name: str) -> dict[str, Any]:
+        client = await self._get_client()
+        resp = await client.delete(
+            f"{settings.META_API_URL}/{waba_id}/message_templates",
+            params={"name": template_name},
+        )
+        if resp.status_code >= 400:
+            error_body = resp.text
+            self._log_auth_error(resp.status_code, error_body)
+            return {"error": True, "status": resp.status_code, "detail": error_body}
+        result5: dict[str, Any] = resp.json()
+        return result5
+
+    async def get_templates(self, waba_id: str) -> list[dict[str, Any]]:
+        client = await self._get_client()
+        all_templates: list[dict[str, Any]] = []
+        url = f"{settings.META_API_URL}/{waba_id}/message_templates"
+        while url:
+            resp = await client.get(url)
+            if resp.status_code >= 400:
+                error_body = resp.text
+                self._log_auth_error(resp.status_code, error_body)
+                return []
+            data = resp.json()
+            all_templates.extend(data.get("data", []))
+            url = data.get("paging", {}).get("next")
+        return all_templates
+
     async def mark_read(self, message_id: str) -> dict[str, Any]:
         client = await self._get_client()
         payload = {
@@ -112,15 +271,10 @@ class MetaAPIClient:
 
     async def health_check(self) -> dict[str, Any]:
         try:
-            if not settings.WHATSAPP_ACCESS_TOKEN:
-                return {"connected": False, "status_code": None, "error": "No access token configured"}
-            client = await self._get_client()
-            resp = await client.get(self.base_url)
-            if resp.status_code == 200:
-                return {"connected": True, "status_code": 200, "error": None}
-            error_msg = resp.text[:200]
-            self._log_auth_error(resp.status_code, error_msg)
-            return {"connected": False, "status_code": resp.status_code, "error": error_msg}
+            token_health = await self.check_token_health()
+            if token_health.get("valid"):
+                return {"connected": True, "status_code": 200, "error": None, **token_health}
+            return {"connected": False, "status_code": None, "error": token_health.get("error", "Token invalid"), **token_health}
         except Exception as e:
             logger.error("meta_health_check_exception", error=str(e))
             return {"connected": False, "status_code": None, "error": str(e)}
@@ -131,23 +285,67 @@ class MetaAPIClient:
             logger.error("meta_token_missing")
             return {"valid": False, "error": "No WHATSAPP_ACCESS_TOKEN found"}
         try:
-            async with httpx.AsyncClient(
-                timeout=15.0,
-                headers={"Authorization": f"Bearer {token}"},
-            ) as client:
-                resp = await client.get(
-                    f"{settings.META_API_URL}/debug_token",
-                    params={"input_token": token},
-                )
-            data = resp.json().get("data", {})
-            is_valid = data.get("is_valid", False)
-            expires_at = data.get("expires_at")
-            token_type = data.get("type", "unknown")
-            scopes = data.get("scopes", [])
+            is_valid = False
+            expires_at: int | None = None
+            token_type = "unknown"
+            scopes: list[str] = []
+
+            app_access_token: str | None = None
+            if settings.META_APP_ID and settings.META_APP_SECRET:
+                app_access_token = f"{settings.META_APP_ID}|{settings.META_APP_SECRET}"
+
+            if app_access_token:
+                async with httpx.AsyncClient(
+                    timeout=15.0,
+                    headers={"Authorization": f"Bearer {app_access_token}"},
+                ) as client:
+                    resp = await client.get(
+                        f"{settings.META_API_URL}/debug_token",
+                        params={"input_token": token},
+                    )
+                    data = resp.json().get("data", {})
+                    is_valid = data.get("is_valid", False)
+                    expires_at = data.get("expires_at")
+                    token_type = data.get("type", "unknown")
+                    scopes = data.get("scopes", [])
+
+                    if not is_valid:
+                        error_msg = data.get("error", {}).get("message", "unknown")
+                        error_subcode = resp.json().get("error", {}).get("error_subcode", data.get("error", {}).get("code"))
+                        logger.error(
+                            "meta_token_invalid",
+                            token_prefix=token[:10],
+                            error=error_msg,
+                            error_subcode=error_subcode,
+                            hint="Update WHATSAPP_ACCESS_TOKEN in .env or set env var",
+                        )
+            else:
+                async with httpx.AsyncClient(
+                    timeout=15.0,
+                    headers={"Authorization": f"Bearer {token}"},
+                ) as client:
+                    resp = await client.get(f"{settings.META_API_URL}/me/permissions")
+                    if resp.status_code == 200:
+                        is_valid = True
+                        token_type = "SYSTEM_USER"
+                        expires_at = 0
+                        perms = resp.json().get("data", [])
+                        scopes = [p["permission"] for p in perms if p.get("status") == "active"]
+                    else:
+                        is_valid = False
+                        token_type = "unknown"
+                        expires_at = None
+                        scopes = []
+                        logger.error(
+                            "meta_token_invalid",
+                            token_prefix=token[:10],
+                            status_code=resp.status_code,
+                            hint="Token verification failed. Set META_APP_ID and META_APP_SECRET for /debug_token support",
+                        )
 
             from datetime import UTC, datetime
-            remaining_min = None
-            if expires_at:
+            remaining_min: float | None = None
+            if expires_at and expires_at > 0:
                 remaining_min = (datetime.fromtimestamp(expires_at, tz=UTC) - datetime.now(tz=UTC)).total_seconds() / 60
 
             self._token_expires_at = expires_at
@@ -167,16 +365,6 @@ class MetaAPIClient:
                         remaining_min=round(remaining_min),
                         hint="Generate a System User token for permanent access",
                     )
-            else:
-                error_msg = data.get("error", {}).get("message", "unknown")
-                error_subcode = resp.json().get("error", {}).get("error_subcode", data.get("error", {}).get("code"))
-                logger.error(
-                    "meta_token_invalid",
-                    token_prefix=token[:10],
-                    error=error_msg,
-                    error_subcode=error_subcode,
-                    hint="Update WHATSAPP_ACCESS_TOKEN in .env or set env var",
-                )
 
             return {
                 "valid": is_valid,

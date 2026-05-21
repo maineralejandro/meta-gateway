@@ -32,8 +32,8 @@ ESCALATE_TOOL_SCHEMA: dict[str, Any] = {
         "description": (
             "Escalar la conversacion a un operador humano. Usar cuando el cliente esta molesto, "
             "pide cancelar, o cuando no puedes resolver su solicitud. "
-            "NO combines esta herramienta con acciones mutantes (order_clear, order_add, "
-            "order_remove, etc.). Cuando escalas, el humano toma el control y decide que "
+    "NO combines esta herramienta con acciones mutantes (cart_clear, cart_add, "
+    "cart_remove, etc.). Cuando escalas, el humano toma el control y decide que "
             "hacer con el pedido. Si el cliente pide cancelar y esta molesto, SOLO escala — "
             "el humano decide si cancela o rescata la venta."
         ),
@@ -120,7 +120,7 @@ def _build_tool_map(capabilities: list[BaseCapability]) -> dict[str, BaseCapabil
     return tool_map
 
 
-_TOOL_NAME_PREFIXES = ("cart_", "catalog_", "appointment_", "membership_", "lead_", "escalate_to_")
+_TOOL_NAME_PREFIXES = ("cart_", "catalog_", "send_product_", "show_category_", "appointment_", "membership_", "lead_", "escalate_to_")
 
 _TOOL_DISCIPLINE_INSTRUCTION = (
     "\n\nDISCIPLINA DE HERRAMIENTAS (OBLIGATORIO):\n"
@@ -131,7 +131,7 @@ _TOOL_DISCIPLINE_INSTRUCTION = (
     "Si necesitas hacer una accion, llama la herramienta. "
     "Si solo respondes texto, responde en lenguaje natural.\n"
     "2. Puedes llamar MULTIPLES herramientas en una sola respuesta para acciones compatibles "
-    "(ej: agregar 2 productos diferentes con order_add x2). "
+    "(ej: agregar 2 productos diferentes con cart_add x2). "
     "PERO NO combines acciones mutantes con escalate_to_human — al escalar, el humano decide.\n"
     "3. CRITICO: NUNCA construyas ni calcules el resumen del pedido tu mismo. "
     "El estado real del pedido siempre esta en el contexto bajo "
@@ -143,10 +143,10 @@ _TOOL_DISCIPLINE_INSTRUCTION = (
     "basandote en los ultimos productos mencionados en la conversacion, "
     "y llama las herramientas correspondientes. No pidas confirmacion si la referencia "
     "es clara por contexto.\n"
-    "5. Cuando el menu sea grande y uses order_search_item para encontrar productos, "
-    "el item_key que uses en order_add DEBE venir EXACTAMENTE de los resultados de "
-    "order_search_item o order_get_menu. NUNCA inventes, adivines ni modifiques un item_key. "
-    "Si no encuentras el producto, busca con otros terminos o usa order_get_categories "
+    "5. Cuando el menu sea grande y uses catalog_search para encontrar productos, "
+    "el item_key que uses en cart_add DEBE venir EXACTAMENTE de los resultados de "
+    "catalog_search o catalog_list. NUNCA inventes, adivines ni modifiques un item_key. "
+    "Si no encuentras el producto, busca con otros terminos o usa catalog_categories "
     "para explorar el menu."
 )
 

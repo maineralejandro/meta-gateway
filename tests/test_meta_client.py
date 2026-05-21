@@ -60,12 +60,8 @@ async def test_send_message_alias(client):
 
 @pytest.mark.asyncio
 async def test_health_check_success(client):
-    mock_httpx = AsyncMock()
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_httpx.get.return_value = mock_resp
-
-    with patch.object(client, "_get_client", return_value=mock_httpx):
+    with patch.object(client, "check_token_health", new_callable=AsyncMock) as mock_th:
+        mock_th.return_value = {"valid": True, "type": "SYSTEM_USER", "expires_at": 0, "scopes": []}
         result = await client.health_check()
 
     assert result["connected"] is True
@@ -74,24 +70,18 @@ async def test_health_check_success(client):
 
 @pytest.mark.asyncio
 async def test_health_check_no_token(client):
-    from core.config import settings
-    old = settings.WHATSAPP_ACCESS_TOKEN
-    settings.WHATSAPP_ACCESS_TOKEN = ""
-    try:
+    with patch.object(client, "check_token_health", new_callable=AsyncMock) as mock_th:
+        mock_th.return_value = {"valid": False, "error": "No WHATSAPP_ACCESS_TOKEN found"}
         result = await client.health_check()
-    finally:
-        settings.WHATSAPP_ACCESS_TOKEN = old
 
     assert result["connected"] is False
-    assert "No access token" in result["error"]
+    assert "No WHATSAPP_ACCESS_TOKEN" in result["error"]
 
 
 @pytest.mark.asyncio
 async def test_health_check_exception(client):
-    mock_httpx = AsyncMock()
-    mock_httpx.get.side_effect = ConnectionError("DNS failed")
-
-    with patch.object(client, "_get_client", return_value=mock_httpx):
+    with patch.object(client, "check_token_health", new_callable=AsyncMock) as mock_th:
+        mock_th.side_effect = ConnectionError("DNS failed")
         result = await client.health_check()
 
     assert result["connected"] is False
@@ -274,3 +264,188 @@ def test_resolve_token_dotenv_over_os_environ():
         mock_settings.WHATSAPP_ACCESS_TOKEN = "settings-token"
         token = c._resolve_token()
         assert token == "dotenv-token"
+
+
+@pytest.mark.asyncio
+async def test_send_interactive_buttons_success(client):
+    mock_httpx = AsyncMock()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"messages": [{"id": "wamid_btn"}]}
+    mock_httpx.post.return_value = mock_resp
+
+    with patch.object(client, "_get_client", return_value=mock_httpx):
+        result = await client.send_interactive_buttons(
+            "56912345678",
+            "Desea agregar al carrito?",
+            [{"id": "yes", "title": "Sí"}, {"id": "no", "title": "No"}],
+        )
+
+    assert "error" not in result
+    call_args = mock_httpx.post.call_args
+    payload = call_args[1]["json"]
+    assert payload["type"] == "interactive"
+    assert payload["interactive"]["type"] == "button"
+    assert len(payload["interactive"]["action"]["buttons"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_send_interactive_buttons_truncated_to_3(client):
+    mock_httpx = AsyncMock()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"messages": [{"id": "wamid_btn"}]}
+    mock_httpx.post.return_value = mock_resp
+
+    buttons = [{"id": f"b{i}", "title": f"Button {i}"} for i in range(5)]
+
+    with patch.object(client, "_get_client", return_value=mock_httpx):
+        await client.send_interactive_buttons("56912345678", "Choose", buttons)
+
+    call_args = mock_httpx.post.call_args
+    payload = call_args[1]["json"]
+    assert len(payload["interactive"]["action"]["buttons"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_send_interactive_list_success(client):
+    mock_httpx = AsyncMock()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"messages": [{"id": "wamid_list"}]}
+    mock_httpx.post.return_value = mock_resp
+
+    sections = [{
+        "title": "Frutas",
+        "rows": [{"id": "frutilla", "title": "Frutilla"}, {"id": "manzana", "title": "Manzana"}],
+    }]
+
+    with patch.object(client, "_get_client", return_value=mock_httpx):
+        result = await client.send_interactive_list(
+            "56912345678", "Elige un producto", "Ver productos", sections,
+        )
+
+    assert "error" not in result
+    call_args = mock_httpx.post.call_args
+    payload = call_args[1]["json"]
+    assert payload["type"] == "interactive"
+    assert payload["interactive"]["type"] == "list"
+
+
+@pytest.mark.asyncio
+async def test_check_token_health_with_app_access_token(client):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "data": {
+            "is_valid": True,
+            "type": "SYSTEM_USER",
+            "expires_at": 0,
+            "scopes": ["whatsapp_business_messaging"],
+        }
+    }
+
+    mock_cm = AsyncMock()
+    mock_cm.get.return_value = mock_resp
+    mock_cm.__aenter__ = AsyncMock(return_value=mock_cm)
+    mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("core.meta_client.settings") as mock_settings, \
+         patch.object(client, "_resolve_token", return_value="sys-user-token"), \
+         patch("httpx.AsyncClient", return_value=mock_cm):
+        mock_settings.META_APP_ID = "12345"
+        mock_settings.META_APP_SECRET = "abcde"
+        mock_settings.META_API_URL = "https://graph.facebook.com/v25.0"
+        result = await client.check_token_health()
+
+    assert result["valid"] is True
+    assert result["type"] == "SYSTEM_USER"
+
+
+@pytest.mark.asyncio
+async def test_check_token_health_fallback_permissions(client):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "data": [
+            {"permission": "whatsapp_business_messaging", "status": "active"},
+        ]
+    }
+
+    mock_cm = AsyncMock()
+    mock_cm.get.return_value = mock_resp
+    mock_cm.__aenter__ = AsyncMock(return_value=mock_cm)
+    mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("core.meta_client.settings") as mock_settings, \
+         patch.object(client, "_resolve_token", return_value="sys-user-token"), \
+         patch("httpx.AsyncClient", return_value=mock_cm):
+        mock_settings.META_APP_ID = ""
+        mock_settings.META_APP_SECRET = "abcde"
+        mock_settings.META_API_URL = "https://graph.facebook.com/v25.0"
+        result = await client.check_token_health()
+
+    assert result["valid"] is True
+    assert result["type"] == "SYSTEM_USER"
+    assert result["expires_at"] == 0
+
+
+@pytest.mark.asyncio
+async def test_health_check_uses_token_health(client):
+    with patch.object(client, "check_token_health", new_callable=AsyncMock) as mock_th:
+        mock_th.return_value = {"valid": True, "type": "SYSTEM_USER", "expires_at": 0, "scopes": []}
+        result = await client.health_check()
+
+        assert result["connected"] is True
+        assert result["status_code"] == 200
+
+
+@pytest.mark.asyncio
+async def test_send_image_success(client):
+    mock_httpx = AsyncMock()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"messages": [{"id": "wamid_img"}]}
+    mock_httpx.post.return_value = mock_resp
+
+    with patch.object(client, "_get_client", return_value=mock_httpx):
+        result = await client.send_image("56912345678", "https://example.com/product.jpg", caption="Producto X")
+
+    assert "error" not in result
+    call_args = mock_httpx.post.call_args
+    payload = call_args[1]["json"]
+    assert payload["type"] == "image"
+    assert payload["image"]["url"] == "https://example.com/product.jpg"
+    assert payload["image"]["caption"] == "Producto X"
+
+
+@pytest.mark.asyncio
+async def test_send_image_without_caption(client):
+    mock_httpx = AsyncMock()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"messages": [{"id": "wamid_img"}]}
+    mock_httpx.post.return_value = mock_resp
+
+    with patch.object(client, "_get_client", return_value=mock_httpx):
+        result = await client.send_image("56912345678", "https://example.com/img.jpg")
+
+    assert "error" not in result
+    call_args = mock_httpx.post.call_args
+    payload = call_args[1]["json"]
+    assert "caption" not in payload["image"]
+
+
+@pytest.mark.asyncio
+async def test_send_image_http_error(client):
+    mock_httpx = AsyncMock()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 401
+    mock_resp.text = "Unauthorized"
+    mock_httpx.post.return_value = mock_resp
+
+    with patch.object(client, "_get_client", return_value=mock_httpx):
+        result = await client.send_image("56912345678", "https://example.com/img.jpg")
+
+    assert result["error"] is True
+    assert result["status"] == 401

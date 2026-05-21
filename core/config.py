@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     WHATSAPP_ACCESS_TOKEN: str = ""
     WHATSAPP_VERIFY_TOKEN: str = ""
     META_APP_SECRET: str = ""
+    META_APP_ID: str = ""
+    WHATSAPP_BUSINESS_ACCOUNT_ID: str = ""
 
     LLM_PROVIDER: str = "nvidia"
     LLM_MODEL: str = "meta/llama-3.3-70b-instruct"
@@ -38,6 +40,10 @@ class Settings(BaseSettings):
     TOOL_MAX_ITERATIONS: int = 5
     TOOL_EXECUTION_TTL: int = 300
     MARK_READ_DELAY_MS: int = 200
+
+    FOLLOW_UP_DELAY_MINUTES: int = 30
+    RE_ENGAGEMENT_DAYS: int = 7
+    SCHEDULER_POLL_INTERVAL: int = 60
 
     model_config = SettingsConfigDict(
         env_file=str(Path(__file__).resolve().parents[1] / ".env"),
