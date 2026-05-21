@@ -37,8 +37,10 @@ from db.repositories.business import (
 )
 from db.repositories.conversation import ConversationRepository, MessageRepository
 from db.repositories.memory import MemoryRepository
+from db.repositories.scheduled_message import ScheduledMessageRepository
 from db.repositories.session import SessionRepository, TurnRepository
 from db.repositories.trace import TraceRepository
+from db.repositories.whatsapp_template import WhatsAppTemplateRepository
 
 logger = structlog.get_logger()
 
@@ -64,6 +66,8 @@ class Database:
         self.memberships = MembershipRepository()
         self.plans = PlanRepository()
         self.leads = LeadRepository()
+        self.whatsapp_templates = WhatsAppTemplateRepository()
+        self.scheduled_messages = ScheduledMessageRepository()
 
     async def execute(self, query: str, *args: Any) -> None:
         pool = await get_pool()

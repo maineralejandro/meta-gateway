@@ -317,3 +317,77 @@ def row_to_inference_trace(row: asyncpg.Record | dict[str, Any] | None) -> Infer
         latency_ms=_val(row, "latency_ms", 0),
         created_at=_val(row, "created_at"),
     )
+
+
+@dataclass
+class WhatsAppTemplate:
+    id: int | None = None
+    agent_id: int = 1
+    template_name: str = ""
+    template_type: str = "UTILITY"
+    category: str = "UTILITY"
+    language: str = "es"
+    status: str = "PENDING"
+    body_text: str = ""
+    header_text: str | None = None
+    header_image_url: str | None = None
+    footer_text: str | None = None
+    buttons_json: str = "[]"
+    meta_template_id: str | None = None
+    meta_quality_rating: str | None = None
+    rejection_reason: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+def row_to_whatsapp_template(row: asyncpg.Record | dict[str, Any] | None) -> WhatsAppTemplate | None:
+    if row is None:
+        return None
+    return WhatsAppTemplate(
+        id=_val(row, "id"),
+        agent_id=_val(row, "agent_id", 1),
+        template_name=_val(row, "template_name", ""),
+        template_type=_val(row, "template_type", "UTILITY"),
+        category=_val(row, "category", "UTILITY"),
+        language=_val(row, "language", "es"),
+        status=_val(row, "status", "PENDING"),
+        body_text=_val(row, "body_text", ""),
+        header_text=_val(row, "header_text"),
+        header_image_url=_val(row, "header_image_url"),
+        footer_text=_val(row, "footer_text"),
+        buttons_json=_val(row, "buttons_json", "[]"),
+        meta_template_id=_val(row, "meta_template_id"),
+        meta_quality_rating=_val(row, "meta_quality_rating"),
+        rejection_reason=_val(row, "rejection_reason"),
+        created_at=_val(row, "created_at"),
+        updated_at=_val(row, "updated_at"),
+    )
+
+
+@dataclass
+class ScheduledMessage:
+    id: int | None = None
+    phone: str = ""
+    template_name: str = ""
+    components_json: str = "[]"
+    scheduled_at: str | None = None
+    triggered_by_message_id: str | None = None
+    status: str = "PENDING"
+    sent_at: str | None = None
+    created_at: str | None = None
+
+
+def row_to_scheduled_message(row: asyncpg.Record | dict[str, Any] | None) -> ScheduledMessage | None:
+    if row is None:
+        return None
+    return ScheduledMessage(
+        id=_val(row, "id"),
+        phone=_val(row, "phone", ""),
+        template_name=_val(row, "template_name", ""),
+        components_json=_val(row, "components_json", "[]"),
+        scheduled_at=_val(row, "scheduled_at"),
+        triggered_by_message_id=_val(row, "triggered_by_message_id"),
+        status=_val(row, "status", "PENDING"),
+        sent_at=_val(row, "sent_at"),
+        created_at=_val(row, "created_at"),
+    )
