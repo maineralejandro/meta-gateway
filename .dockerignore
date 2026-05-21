@@ -1,0 +1,16 @@
+.git
+.env
+*.db
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.migration
+.opencode
+node_modules
+dashboard/node_modules
+dashboard/.next
+dashboard/.env.local
+venv
+.venv

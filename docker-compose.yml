@@ -6,12 +6,14 @@ services:
     container_name: meta-gateway-backend
     volumes:
       - .:/app
+      - backend_venv:/app/.venv
     extra_hosts:
       - "host.docker.internal:host-gateway"
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql://postgres:postgres@supabase_db_app:5432/postgres
+      SKIP_STARTUP_VALIDATION: "false"
     networks:
       - caddy_net
       - supabase_network_app
@@ -19,6 +21,12 @@ services:
       caddy: api.meta-gateway.localhost
       caddy.reverse_proxy: "{{upstreams 8080}}"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   dashboard:
     build:
@@ -27,7 +35,7 @@ services:
     container_name: meta-gateway-dashboard
     volumes:
       - ./dashboard:/app/dashboard
-      - /app/dashboard/node_modules
+      - dashboard_node_modules:/app/dashboard/node_modules
     environment:
       NEXT_PUBLIC_DASHBOARD_TOKEN: ${NEXT_PUBLIC_DASHBOARD_TOKEN:-hermes_dashboard_2024}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.meta-gateway.localhost}
@@ -38,9 +46,16 @@ services:
       caddy: meta-gateway.localhost
       caddy.reverse_proxy: "{{upstreams 3000}}"
     restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
 
 networks:
   caddy_net:
     external: true
   supabase_network_app:
     external: true
+
+volumes:
+  backend_venv:
+  dashboard_node_modules:

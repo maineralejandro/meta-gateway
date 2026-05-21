@@ -5,4 +5,8 @@ WORKDIR /app/dashboard
 COPY package*.json ./
 RUN npm install
 
+COPY entrypoint.dev.sh /entrypoint.dev.sh
+RUN chmod +x /entrypoint.dev.sh
+
+ENTRYPOINT ["/entrypoint.dev.sh"]
 CMD ["npm", "run", "dev"]
