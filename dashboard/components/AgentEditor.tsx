@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '../lib/auth';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 interface Agent {
   id: number;
@@ -25,10 +28,7 @@ const AgentEditor: React.FC = () => {
   const fetchAgents = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('hermes_token') || 'hermes_dashboard_2024';
-      const res = await fetch('http://localhost:8080/api/agents', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await authFetch(`${API_URL}/api/agents`);
       if (!res.ok) throw new Error('Failed to fetch agents');
       const data = await res.json();
       setAgents(data);
@@ -66,13 +66,9 @@ const AgentEditor: React.FC = () => {
     if (!editingAgent) return;
     setSaving(true);
     try {
-      const token = localStorage.getItem('hermes_token') || 'hermes_dashboard_2024';
-      const res = await fetch(`http://localhost:8080/api/agents/${editingAgent.id}`, {
+      const res = await authFetch(`${API_URL}/api/agents/${editingAgent.id}`, {
         method: 'PUT',
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editingAgent)
       });
       if (!res.ok) throw new Error('Failed to save agent');
@@ -89,10 +85,8 @@ const AgentEditor: React.FC = () => {
     if (!selectedAgentId) return;
     setSaving(true);
     try {
-      const token = localStorage.getItem('hermes_token') || 'hermes_dashboard_2024';
-      const res = await fetch(`http://localhost:8080/api/agents/${selectedAgentId}/activate`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+      const res = await authFetch(`${API_URL}/api/agents/${selectedAgentId}/activate`, {
+        method: 'POST'
       });
       if (!res.ok) throw new Error('Failed to activate agent');
       await fetchAgents();
@@ -110,13 +104,9 @@ const AgentEditor: React.FC = () => {
 
     setSaving(true);
     try {
-      const token = localStorage.getItem('hermes_token') || 'hermes_dashboard_2024';
-      const res = await fetch('http://localhost:8080/api/agents', {
+      const res = await authFetch(`${API_URL}/api/agents`, {
         method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name,
           description: 'Nuevo agente',
