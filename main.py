@@ -22,10 +22,22 @@ from core.events import setup_default_subscribers
 from core.logging_config import setup_logging
 from core.meta_client import meta_client
 from core.metrics import APP_INFO
+from core.scheduler import message_scheduler
 from core.security import api_rate_limiter
 from core.task_tracker import wait_for_inflight
 from db.database import close_db, init_db
-from routers import agents, capabilities, conversations, debug, messages, templates, webhook, ws
+from routers import (
+    agents,
+    capabilities,
+    conversations,
+    debug,
+    messages,
+    scheduled_messages,
+    templates,
+    wa_templates,
+    webhook,
+    ws,
+)
 
 setup_logging()
 
@@ -91,6 +103,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("catalog_loaded_at_startup", item_count=len(cart_state._catalog), needs_search=cart_state.needs_search)
     APP_INFO.info({"version": "2.0.0", "llm_model": settings.LLM_MODEL or "unknown"})
     start_cleanup_task()
+    await message_scheduler.start()
     logger.info("db_initialized", engine="postgresql")
 
     if not settings.SKIP_STARTUP_VALIDATION:
@@ -124,6 +137,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 hint="Update WHATSAPP_ACCESS_TOKEN in .env or set env var. Create System User token at https://business.facebook.com/settings/system-users",
             )
     yield
+    await message_scheduler.stop()
     stop_cleanup_task()
     await wait_for_inflight()
     await meta_client.close()
@@ -158,6 +172,8 @@ app.include_router(agents.router)
 app.include_router(capabilities.router)
 app.include_router(debug.router)
 app.include_router(templates.router)
+app.include_router(wa_templates.router)
+app.include_router(scheduled_messages.router)
 app.include_router(ws.router)
 
 
