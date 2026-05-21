@@ -233,18 +233,20 @@ async def test_reload_catalog_from_db_error_keeps_existing():
 def test_get_tool_definitions():
     inst = CartState()
     defs = inst.get_tool_definitions({})
-    assert len(defs) == 4
+    assert len(defs) == 6
     names = [d["function"]["name"] for d in defs]
     assert "cart_add" in names
     assert "cart_remove" in names
     assert "cart_clear" in names
     assert "catalog_list" in names
+    assert "send_product_image" in names
+    assert "show_category_menu" in names
 
 
 def test_get_tool_names():
     inst = CartState()
     names = inst.get_tool_names()
-    assert names == {"cart_add", "cart_remove", "cart_clear", "catalog_list"}
+    assert names == {"cart_add", "cart_remove", "cart_clear", "catalog_list", "send_product_image", "show_category_menu"}
 
 
 @pytest.mark.asyncio
@@ -306,7 +308,7 @@ async def test_execute_unknown_tool(os_instance):
 
 def test_parallel_safe_and_sequential_tools():
     inst = CartState()
-    assert {"catalog_list", "catalog_search", "catalog_categories"} == inst.PARALLEL_SAFE_TOOLS
+    assert {"catalog_list", "catalog_search", "catalog_categories", "send_product_image", "show_category_menu"} == inst.PARALLEL_SAFE_TOOLS
     assert {"cart_add", "cart_remove", "cart_clear"} == inst.SEQUENTIAL_TOOLS
 
 
@@ -355,14 +357,14 @@ class TestDualModeFlat:
         inst._catalog = dict(_TEST_CATALOG)
         defs = inst.get_tool_definitions({})
         names = {d["function"]["name"] for d in defs}
-        assert names == {"cart_add", "cart_remove", "cart_clear", "catalog_list"}
+        assert names == {"cart_add", "cart_remove", "cart_clear", "catalog_list", "send_product_image", "show_category_menu"}
         add_def = next(d for d in defs if d["function"]["name"] == "cart_add")
         assert "enum" in add_def["function"]["parameters"]["properties"]["item_key"]
 
     def test_flat_tool_names(self):
         inst = CartState()
         inst._catalog = dict(_TEST_CATALOG)
-        assert inst.get_tool_names() == {"cart_add", "cart_remove", "cart_clear", "catalog_list"}
+        assert inst.get_tool_names() == {"cart_add", "cart_remove", "cart_clear", "catalog_list", "send_product_image", "show_category_menu"}
 
     def test_flat_format_for_context_has_full_catalog(self):
         inst = CartState()
@@ -417,7 +419,7 @@ class TestDualModeSearch:
         names = inst.get_tool_names()
         assert "catalog_search" in names
         assert "catalog_categories" in names
-        assert names - {"catalog_search", "catalog_categories"} == {"cart_add", "cart_remove", "cart_clear", "catalog_list"}
+        assert names - {"catalog_search", "catalog_categories"} == {"cart_add", "cart_remove", "cart_clear", "catalog_list", "send_product_image", "show_category_menu"}
 
     def test_search_add_description_has_never_invent_key(self):
         inst = self._make_search_instance()

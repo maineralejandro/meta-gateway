@@ -22,10 +22,8 @@ def test_manager_initial_state():
 async def test_connect():
     m = WebSocketConnectionManager()
     ws = MagicMock(spec=WebSocket)
-    ws.accept = AsyncMock()
     await m.connect(ws)
     assert ws in m.active_connections
-    ws.accept.assert_called_once()
 
 
 def test_disconnect():
@@ -135,9 +133,7 @@ def test_disconnect_logs_count():
 async def test_connect_multiple():
     m = WebSocketConnectionManager()
     ws1 = MagicMock(spec=WebSocket)
-    ws1.accept = AsyncMock()
     ws2 = MagicMock(spec=WebSocket)
-    ws2.accept = AsyncMock()
 
     await m.connect(ws1)
     await m.connect(ws2)
