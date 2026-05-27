@@ -12,13 +12,16 @@ logger = structlog.get_logger()
 async def verify_meta_signature(request: Request, body: bytes) -> bool:
     """
     Verifica la firma HMAC-SHA256 del webhook de Meta.
-    Retorna True si la firma es válida o si META_APP_SECRET no está configurado (modo dev).
-    Retorna False si la firma es inválida.
+    Retorna True solo si la firma es válida, o si SKIP_WEBHOOK_SIGNATURE=True (dev mode).
+    Retorna False si la firma es inválida o si no hay secret configurado (sin skip flag).
     """
     secret = settings.META_APP_SECRET
     if not secret:
-        # Modo dev: si no hay secret, permitimos el request pero loggeamos un warning
-        return True
+        if settings.SKIP_WEBHOOK_SIGNATURE:
+            logger.warning("webhook_signature_skip_enabled", hint="DO NOT USE IN PRODUCTION")
+            return True
+        logger.error("webhook_signature_no_secret", hint="Set META_APP_SECRET or SKIP_WEBHOOK_SIGNATURE=true for dev")
+        return False
 
     signature_header = request.headers.get("X-Hub-Signature-256")
     if not signature_header:
@@ -45,77 +48,35 @@ async def verify_meta_signature(request: Request, body: bytes) -> bool:
     return False
 
 class RateLimiter:
-    """
-    Rate limiter básico en memoria por número de teléfono.
-    Permite `max_per_minute` requests por minuto por número.
-    """
     def __init__(self, max_per_minute: int = 30):
         self.max_per_minute = max_per_minute
         self.requests: dict[str, list[float]] = {}
 
-    def is_allowed(self, phone: str) -> bool:
+    def is_allowed(self, key: str) -> bool:
         now = time.time()
-
-        if phone not in self.requests:
-            self.requests[phone] = []
-
-        # Limpiar requests antiguos (> 60 segundos)
-        self.requests[phone] = [req_time for req_time in self.requests[phone] if now - req_time < 60]
-
-        if len(self.requests[phone]) >= self.max_per_minute:
+        if key not in self.requests:
+            self.requests[key] = []
+        self.requests[key] = [t for t in self.requests[key] if now - t < 60]
+        if len(self.requests[key]) >= self.max_per_minute:
             return False
-
-        self.requests[phone].append(now)
-        return True
-
-    def cleanup(self) -> None:
-        """Elimina entradas de teléfonos sin actividad reciente."""
-        now = time.time()
-        phones_to_delete = []
-        for phone, timestamps in self.requests.items():
-            # Limpiar timestamps antiguos
-            valid_timestamps = [req_time for req_time in timestamps if now - req_time < 60]
-            if not valid_timestamps:
-                phones_to_delete.append(phone)
-            else:
-                self.requests[phone] = valid_timestamps
-
-        for phone in phones_to_delete:
-            del self.requests[phone]
-
-# Instancia global del rate limiter
-rate_limiter = RateLimiter()
-
-
-class IPRateLimiter:
-    def __init__(self, max_per_minute: int = 60):
-        self.max_per_minute = max_per_minute
-        self.requests: dict[str, list[float]] = {}
-
-    def is_allowed(self, client_ip: str) -> bool:
-        now = time.time()
-        if client_ip not in self.requests:
-            self.requests[client_ip] = []
-        self.requests[client_ip] = [t for t in self.requests[client_ip] if now - t < 60]
-        if len(self.requests[client_ip]) >= self.max_per_minute:
-            return False
-        self.requests[client_ip].append(now)
+        self.requests[key].append(now)
         return True
 
     def cleanup(self) -> None:
         now = time.time()
         to_delete = []
-        for ip, timestamps in self.requests.items():
+        for key, timestamps in self.requests.items():
             valid = [t for t in timestamps if now - t < 60]
             if not valid:
-                to_delete.append(ip)
+                to_delete.append(key)
             else:
-                self.requests[ip] = valid
-        for ip in to_delete:
-            del self.requests[ip]
+                self.requests[key] = valid
+        for key in to_delete:
+            del self.requests[key]
 
 
-api_rate_limiter = IPRateLimiter(max_per_minute=60)
+rate_limiter = RateLimiter(max_per_minute=30)
+api_rate_limiter = RateLimiter(max_per_minute=60)
 
 def sanitize_llm_output(text: str) -> str:
     """

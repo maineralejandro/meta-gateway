@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from core.config import settings
-from core.security import IPRateLimiter, RateLimiter, sanitize_llm_output, verify_meta_signature
+from core.security import RateLimiter, sanitize_llm_output, verify_meta_signature
 
 
 @pytest.mark.asyncio
@@ -53,15 +53,29 @@ async def test_verify_meta_signature_missing_header():
     assert result is False
 
 @pytest.mark.asyncio
-async def test_verify_meta_signature_dev_mode():
-    settings.META_APP_SECRET = "" # Vacío = dev mode
+async def test_verify_meta_signature_no_secret_rejects():
+    settings.META_APP_SECRET = ""
+    settings.SKIP_WEBHOOK_SIGNATURE = False
     body = b'some_body'
 
     request = MagicMock()
     request.headers = {}
 
     result = await verify_meta_signature(request, body)
-    assert result is True # Permisivo en dev
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_verify_meta_signature_skip_flag():
+    settings.META_APP_SECRET = ""
+    settings.SKIP_WEBHOOK_SIGNATURE = True
+    body = b'some_body'
+
+    request = MagicMock()
+    request.headers = {}
+
+    result = await verify_meta_signature(request, body)
+    assert result is True
 
 
 @pytest.mark.asyncio
@@ -124,7 +138,7 @@ def test_sanitize_llm_output_strip():
 
 
 def test_ip_rate_limiter():
-    limiter = IPRateLimiter(max_per_minute=5)
+    limiter = RateLimiter(max_per_minute=5)
     ip = "127.0.0.1"
 
     for _ in range(5):
@@ -135,7 +149,7 @@ def test_ip_rate_limiter():
 
 
 def test_ip_rate_limiter_cleanup():
-    limiter = IPRateLimiter(max_per_minute=10)
+    limiter = RateLimiter(max_per_minute=10)
     ip = "10.0.0.1"
     limiter.requests[ip] = [time.time() - 70]
     limiter.cleanup()
