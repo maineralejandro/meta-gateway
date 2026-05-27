@@ -10,6 +10,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from core.config import settings
 from core.events import emit
+from core.follow_up import follow_up_manager
 from core.meta_client import meta_client
 from core.metrics import RATE_LIMITS, WEBHOOK_DUPLICATES
 from core.security import rate_limiter, verify_meta_signature
@@ -19,6 +20,11 @@ from db.database import get_db
 
 logger = structlog.get_logger()
 router = APIRouter()
+
+
+def _get_cart_capability() -> Any:
+    from core.container import container
+    return container.cart_capability
 
 
 @router.get("/webhook/whatsapp")
@@ -58,11 +64,6 @@ async def _handle_message(msg: dict[str, Any], value: dict[str, Any], correlatio
         await asyncio.sleep(settings.MARK_READ_DELAY_MS / 1000.0)
 
     try:
-        await meta_client.mark_read(meta_msg_id)
-    except Exception:
-        logger.debug("mark_read_failed", meta_msg_id=meta_msg_id)
-
-    try:
         await meta_client.mark_read_with_typing(meta_msg_id)
     except Exception:
         logger.debug("mark_read_typing_failed", meta_msg_id=meta_msg_id)
@@ -85,9 +86,9 @@ async def _handle_message(msg: dict[str, Any], value: dict[str, Any], correlatio
             if media_url and media_url.startswith("add_to_cart_"):
                 item_key = media_url[len("add_to_cart_"):]
                 try:
-                    from core.cart_state import cart_state
-                    await cart_state.add_item(phone, item_key, 1)
-                    item_name = cart_state._catalog.get(item_key, {}).get("name", item_key)
+                    cart_cap = _get_cart_capability()
+                    await cart_cap.add_item(phone, item_key, 1)
+                    item_name = cart_cap._catalog.get(item_key, {}).get("name", item_key)
                     text = f"Quiero agregar {item_name} al carrito"
                 except Exception as e:
                     logger.warning("add_to_cart_button_failed", phone=phone, item_key=item_key, error=str(e))
@@ -123,8 +124,8 @@ async def _handle_message(msg: dict[str, Any], value: dict[str, Any], correlatio
 
     if product_list_reply_key:
         try:
-            from core.cart_state import cart_state
-            catalog = cart_state.get_catalog()
+            cart_cap = _get_cart_capability()
+            catalog = cart_cap.get_catalog()
             if product_list_reply_key in catalog:
                 item_name = catalog[product_list_reply_key].get("name", text)
                 price = catalog[product_list_reply_key].get("price", 0)
@@ -175,6 +176,11 @@ async def _handle_message(msg: dict[str, Any], value: dict[str, Any], correlatio
         raise
 
     await db.increment_session_message_count(session_id)
+
+    try:
+        await follow_up_manager.cancel_for_phone(phone)
+    except Exception:
+        logger.debug("follow_up_cancel_failed", phone=phone)
 
     await emit("new-message", {
         "phone": phone,
@@ -233,14 +239,8 @@ async def _receive_webhook_inner(request: Request, correlation_id: str = "") -> 
                     logger.warning("status_persist_failed", msg_id=msg_id, error=str(e))
                 if status_val == "delivered" and recipient_phone:
                     try:
-                        from datetime import UTC, datetime, timedelta
-
-                        from core.scheduler import message_scheduler
-                        scheduled_at = (datetime.now(tz=UTC) + timedelta(minutes=settings.FOLLOW_UP_DELAY_MINUTES)).isoformat()
-                        await message_scheduler.schedule(
+                        await follow_up_manager.maybe_schedule(
                             phone=recipient_phone,
-                            template_name="follow_up",
-                            scheduled_at=scheduled_at,
                             triggered_by_message_id=msg_id,
                         )
                     except Exception as e:
@@ -254,7 +254,11 @@ async def _receive_webhook_inner(request: Request, correlation_id: str = "") -> 
                     return {"status": "ok"}
 
     except Exception as e:
-        logger.error("webhook_error", error=str(e))
-        return {"status": "error"}
+        logger.error("webhook_error", error=str(e), error_type=type(e).__name__)
+        from core.webhook_errors import webhook_status_for_error
+        status_code = webhook_status_for_error(e)
+        if status_code == 200:
+            return {"status": "error"}
+        return Response(status_code=status_code)
 
     return {"status": "ok"}

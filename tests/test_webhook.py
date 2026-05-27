@@ -332,12 +332,10 @@ def test_receive_webhook_marks_read_with_typing(client, mock_deps):
 
     response = client.post("/webhook/whatsapp", json=body)
     assert response.status_code == 200
-    mock_deps["meta_client"].mark_read.assert_called_once_with("wamid_read_test")
     mock_deps["meta_client"].mark_read_with_typing.assert_called_once_with("wamid_read_test")
 
 
 def test_receive_webhook_mark_read_failure_doesnt_block(client, mock_deps):
-    mock_deps["meta_client"].mark_read = AsyncMock(side_effect=Exception("API error"))
     mock_deps["meta_client"].mark_read_with_typing = AsyncMock(side_effect=Exception("API error"))
 
     body = {
