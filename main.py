@@ -1,5 +1,8 @@
+import hashlib
+import hmac
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from http.cookies import SimpleCookie
 from typing import Any
 
 import structlog
@@ -19,6 +22,7 @@ from core.capabilities.membership import MembershipCapability
 from core.config import settings
 from core.container import container
 from core.events import setup_default_subscribers
+from core.follow_up import follow_up_manager
 from core.logging_config import setup_logging
 from core.meta_client import meta_client
 from core.metrics import APP_INFO
@@ -29,6 +33,7 @@ from db.database import close_db, init_db
 from routers import (
     agents,
     capabilities,
+    catalog,
     conversations,
     debug,
     messages,
@@ -45,6 +50,31 @@ logger = structlog.get_logger()
 
 
 EXEMPT_PATHS = {"/", "/api/health", "/metrics", "/webhook/whatsapp", "/docs", "/openapi.json", "/redoc"}
+_SESSION_COOKIE = "hermes_session"
+
+
+def _validate_session_cookie(request: Request) -> bool:
+    cookie_header = request.headers.get("cookie")
+    if not cookie_header:
+        return False
+    cookies = SimpleCookie(cookie_header)
+    morsel = cookies.get(_SESSION_COOKIE)
+    if not morsel:
+        return False
+    parts = morsel.value.split(":", 1)
+    if len(parts) != 2:
+        return False
+    token, signature = parts
+    if not settings.DASHBOARD_TOKEN or not settings.DASHBOARD_AUTH_SECRET:
+        return False
+    if token != settings.DASHBOARD_TOKEN:
+        return False
+    expected = hmac.new(
+        settings.DASHBOARD_AUTH_SECRET.encode(),
+        token.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature)
 
 
 class TokenAuthMiddleware(BaseHTTPMiddleware):
@@ -60,10 +90,14 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         if not settings.DASHBOARD_TOKEN:
-            return await call_next(request)
+            logger.critical("dashboard_token_missing", hint="Set DASHBOARD_TOKEN in .env — cannot run without API authentication")
+            return Response(status_code=401, content="DASHBOARD_TOKEN not configured")
 
         auth = request.headers.get("Authorization", "")
         if auth == f"Bearer {settings.DASHBOARD_TOKEN}":
+            return await call_next(request)
+
+        if _validate_session_cookie(request):
             return await call_next(request)
 
         return Response(status_code=401, content="Unauthorized")
@@ -98,9 +132,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     container.build()
     container.wire_singletons()
     setup_default_subscribers()
-    from core.cart_state import cart_state
-    await cart_state.reload_catalog_from_db()
-    logger.info("catalog_loaded_at_startup", item_count=len(cart_state._catalog), needs_search=cart_state.needs_search)
+    follow_up_manager.set_scheduler(message_scheduler)
+    cart_cap = container.cart_capability
+    await cart_cap.reload_catalog_from_db()
+    logger.info("catalog_loaded_at_startup", item_count=len(cart_cap._catalog), needs_search=cart_cap.needs_search)
     APP_INFO.info({"version": "2.0.0", "llm_model": settings.LLM_MODEL or "unknown"})
     start_cleanup_task()
     await message_scheduler.start()
@@ -112,10 +147,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "META_APP_SECRET": settings.META_APP_SECRET,
             "LLM_API_KEY": settings.LLM_API_KEY,
             "WHATSAPP_PHONE_NUMBER_ID": settings.WHATSAPP_PHONE_NUMBER_ID,
+            "DASHBOARD_TOKEN": settings.DASHBOARD_TOKEN,
+            "DASHBOARD_AUTH_SECRET": settings.DASHBOARD_AUTH_SECRET,
         }
         missing = [k for k, v in required.items() if not v or "REPLACE" in v]
         if missing:
             raise RuntimeError(f"Missing required config: {', '.join(missing)}. Set SKIP_STARTUP_VALIDATION=true to bypass.")
+
+    if settings.SKIP_WEBHOOK_SIGNATURE:
+        logger.critical("webhook_signature_verification_disabled", hint="DO NOT USE IN PRODUCTION — anyone can inject fake messages")
 
     logger.info(
         "settings_loaded",
@@ -170,6 +210,7 @@ app.include_router(conversations.router)
 app.include_router(messages.router)
 app.include_router(agents.router)
 app.include_router(capabilities.router)
+app.include_router(catalog.router)
 app.include_router(debug.router)
 app.include_router(templates.router)
 app.include_router(wa_templates.router)

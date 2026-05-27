@@ -1,23 +1,29 @@
-const DASHBOARD_TOKEN = process.env.NEXT_PUBLIC_DASHBOARD_TOKEN || ''
-
 export function authHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {}
-  if (DASHBOARD_TOKEN) {
-    headers['Authorization'] = `Bearer ${DASHBOARD_TOKEN}`
-  }
-  return headers
+  return {}
 }
 
 export function wsUrlWithToken(baseUrl: string): string {
-  if (!DASHBOARD_TOKEN) return baseUrl
-  const sep = baseUrl.includes('?') ? '&' : '?'
-  return `${baseUrl}${sep}token=${DASHBOARD_TOKEN}`
+  return baseUrl
 }
 
 export async function authFetch(url: string, init?: RequestInit): Promise<Response> {
-  const headers = {
-    ...init?.headers,
-    ...authHeaders(),
+  const res = await fetch(url, { ...init, credentials: 'include' })
+  if (res.status === 401 && typeof window !== 'undefined') {
+    window.location.href = '/login'
   }
-  return fetch(url, { ...init, headers })
+  return res
+}
+
+export async function checkAuth(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/auth/check', { credentials: 'include' })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function logout(): Promise<void> {
+  document.cookie = 'hermes_session=; Path=/; Max-Age=0'
+  window.location.href = '/login'
 }
