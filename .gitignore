@@ -47,3 +47,8 @@ tests/data/
 .coverage
 logs/
 *.log
+
+# Local & Tooling metadata
+.opencode/
+.migration/
+backups/
