@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { authFetch } from '../lib/auth';
+import CapabilityConfigurator from './CapabilityConfigurator';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -10,7 +11,7 @@ interface Agent {
   system_prompt: string;
   escalation_marker: string;
   fallback_responses: string;
-  is_active: number;
+  is_active: boolean;
 }
 
 const AgentEditor: React.FC = () => {
@@ -33,7 +34,7 @@ const AgentEditor: React.FC = () => {
       const data = await res.json();
       setAgents(data);
       
-      const active = data.find((a: Agent) => a.is_active === 1);
+      const active = data.find((a: Agent) => a.is_active === true);
       if (active) {
         setSelectedAgentId(active.id);
         setEditingAgent({ ...active });
@@ -96,6 +97,13 @@ const AgentEditor: React.FC = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleReload = async () => {
+    if (!selectedAgentId) return;
+    try {
+      await authFetch(`${API_URL}/api/agents/${selectedAgentId}/reload`, { method: 'POST' });
+    } catch {}
   };
 
   const handleNewAgent = async () => {
@@ -167,7 +175,7 @@ const AgentEditor: React.FC = () => {
                 <span className={`font-semibold ${selectedAgentId === agent.id ? 'text-emerald-400' : 'text-gray-200'}`}>
                   {agent.name}
                 </span>
-                {agent.is_active === 1 && (
+                {agent.is_active === true && (
                   <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]"></span>
                 )}
               </div>
@@ -199,7 +207,7 @@ const AgentEditor: React.FC = () => {
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-gray-400">Estado</label>
                   <div className="flex items-center gap-4 h-[50px]">
-                    {editingAgent.is_active === 1 ? (
+                    {editingAgent.is_active === true ? (
                       <span className="px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full text-xs font-bold uppercase">Activo Ahora</span>
                     ) : (
                       <button 
@@ -249,16 +257,20 @@ const AgentEditor: React.FC = () => {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-400">Fallback Responses (JSON)</label>
-                <textarea
-                  name="fallback_responses"
-                  value={editingAgent.fallback_responses}
-                  onChange={handleInputChange}
-                  rows={8}
-                  className="w-full bg-gray-950/50 border border-gray-800 rounded-xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 transition-all font-mono text-sm text-gray-300 shadow-inner"
-                />
-              </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-400">Fallback Responses (JSON)</label>
+              <textarea
+                name="fallback_responses"
+                value={editingAgent.fallback_responses}
+                onChange={handleInputChange}
+                rows={8}
+                className="w-full bg-gray-950/50 border border-gray-800 rounded-xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 transition-all font-mono text-sm text-gray-300 shadow-inner"
+              />
+            </div>
+
+            <div className="border-t border-gray-800 pt-6">
+              <CapabilityConfigurator agentId={editingAgent.id} onUpdate={handleReload} />
+            </div>
             </div>
           )}
         </div>

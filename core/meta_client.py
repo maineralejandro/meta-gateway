@@ -1,3 +1,4 @@
+import hashlib
 import os
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,10 @@ from core.config import settings
 logger = structlog.get_logger()
 
 _ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+
+
+def _token_fingerprint(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()[:8]
 
 
 class MetaAPIClient:
@@ -50,8 +55,7 @@ class MetaAPIClient:
                 await self._client.aclose()
             logger.info(
                 "meta_token_refreshed",
-                token_prefix=current_token[:10] if current_token else "EMPTY",
-                token_length=len(current_token),
+                token_fingerprint=_token_fingerprint(current_token) if current_token else "EMPTY",
             )
             self._cached_token = current_token
             self._client = httpx.AsyncClient(
@@ -289,6 +293,8 @@ class MetaAPIClient:
             expires_at: int | None = None
             token_type = "unknown"
             scopes: list[str] = []
+            error_msg = "unknown"
+            error_subcode = None
 
             app_access_token: str | None = None
             if settings.META_APP_ID and settings.META_APP_SECRET:
@@ -312,13 +318,13 @@ class MetaAPIClient:
                     if not is_valid:
                         error_msg = data.get("error", {}).get("message", "unknown")
                         error_subcode = resp.json().get("error", {}).get("error_subcode", data.get("error", {}).get("code"))
-                        logger.error(
-                            "meta_token_invalid",
-                            token_prefix=token[:10],
-                            error=error_msg,
-                            error_subcode=error_subcode,
-                            hint="Update WHATSAPP_ACCESS_TOKEN in .env or set env var",
-                        )
+                    logger.error(
+                        "meta_token_invalid",
+                        token_fingerprint=_token_fingerprint(token),
+                        error=error_msg,
+                        error_subcode=error_subcode,
+                        hint="Update WHATSAPP_ACCESS_TOKEN in .env or set env var",
+                    )
             else:
                 async with httpx.AsyncClient(
                     timeout=15.0,
@@ -336,12 +342,12 @@ class MetaAPIClient:
                         token_type = "unknown"
                         expires_at = None
                         scopes = []
-                        logger.error(
-                            "meta_token_invalid",
-                            token_prefix=token[:10],
-                            status_code=resp.status_code,
-                            hint="Token verification failed. Set META_APP_ID and META_APP_SECRET for /debug_token support",
-                        )
+                    logger.error(
+                        "meta_token_invalid",
+                        token_fingerprint=_token_fingerprint(token),
+                        status_code=resp.status_code,
+                        hint="Token verification failed. Set META_APP_ID and META_APP_SECRET for /debug_token support",
+                    )
 
             from datetime import UTC, datetime
             remaining_min: float | None = None
@@ -353,7 +359,7 @@ class MetaAPIClient:
             if is_valid:
                 logger.info(
                     "meta_token_valid",
-                    token_prefix=token[:10],
+                    token_fingerprint=_token_fingerprint(token),
                     token_type=token_type,
                     expires_at=expires_at,
                     remaining_min=round(remaining_min or 0),

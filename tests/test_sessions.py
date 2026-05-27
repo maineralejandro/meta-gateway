@@ -37,7 +37,7 @@ async def test_get_or_create_session_timeout():
     phone = "+56955556666"
     five_hours_ago = datetime.now(UTC) - timedelta(hours=5)
 
-    await db.execute("INSERT INTO conversations (phone, state, agent_id, last_message_at) VALUES ($1, 'PENDING_APPROVAL', 1, $2)", phone, five_hours_ago)
+    await db.execute("INSERT INTO conversations (phone, state, agent_id, last_message_at) VALUES ($1, 'BOT_ACTIVE', 1, $2)", phone, five_hours_ago)
 
     sid1 = await session_manager.get_or_create_session(phone)
 
@@ -97,7 +97,7 @@ async def test_no_timeout_does_not_create_new_session():
 
 
 @pytest.mark.asyncio
-async def test_timeout_resets_state_from_pending():
+async def test_timeout_preserves_escalated_state():
     phone = "+56955551111"
     five_hours_ago = datetime.now(UTC) - timedelta(hours=5)
 
@@ -111,5 +111,5 @@ async def test_timeout_resets_state_from_pending():
 
     assert sid1 != sid2
     conv = await db.get_conversation(phone)
-    assert conv.state == "BOT_ACTIVE"
+    assert conv.state == "PENDING_APPROVAL"
     assert conv.current_session_id == sid2

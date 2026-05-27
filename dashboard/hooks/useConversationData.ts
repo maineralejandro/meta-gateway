@@ -36,7 +36,22 @@ export function useConversations() {
     }
   }, [loadConversations])
 
-  return { conversations, setConversations, loadConversations, updateState, errors, setErrors }
+  const closeSession = useCallback(async (phone: string) => {
+    try {
+      const res = await authFetch(`${API_URL}/api/conversations/${phone}/close-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary: '' }),
+      })
+      if (!res.ok) throw new Error(`Close session: ${res.status} ${res.statusText}`)
+      loadConversations()
+    } catch (e: any) {
+      console.error('Failed to close session', e)
+      setErrors(prev => addError(prev, e?.message || 'Error cerrando sesion'))
+    }
+  }, [loadConversations])
+
+  return { conversations, setConversations, loadConversations, updateState, closeSession, errors, setErrors }
 }
 
 export function useMessages() {
@@ -59,13 +74,8 @@ export function useMessages() {
   const sendMessage = useCallback(async (phone: string, message: string) => {
     const tempId = -(Date.now())
     setMessages(prev => [...prev, {
-      id: tempId,
-      phone,
-      direction: 'outbound',
-      source: 'human',
-      text: message,
-      media_type: null,
-      created_at: new Date().toISOString(),
+      id: tempId, phone, direction: 'outbound', source: 'human',
+      text: message, media_type: null, created_at: new Date().toISOString(),
     }])
     try {
       const res = await authFetch(`${API_URL}/api/messages/send`, {
@@ -75,7 +85,7 @@ export function useMessages() {
       })
       if (!res.ok) throw new Error(`Send message: ${res.status} ${res.statusText}`)
     } catch (e: any) {
-      console.error('Failed to send message', e)
+      setMessages(prev => prev.filter(m => m.id !== tempId))
       setMsgErrors(prev => addError(prev, e?.message || 'Error enviando mensaje'))
     }
   }, [])

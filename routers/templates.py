@@ -58,7 +58,9 @@ async def create_from_template(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    business_name = req.fields.get("business_name", "Mi Negocio")
+    if "business_name" not in req.fields:
+        req.fields["business_name"] = "Mi Negocio"
+    business_name = req.fields["business_name"]
     system_prompt = VARIABLE_RE.sub(
         lambda m: req.fields.get(m.group(1), m.group(0)),
         template.system_prompt_template,

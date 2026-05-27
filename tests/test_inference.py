@@ -373,3 +373,54 @@ def test_normalize_roles_relocates_system_when_no_initial_system():
     assert result[0]["role"] == "system"
     assert result[0]["content"] == "injected"
     assert result[1]["role"] == "user"
+
+
+@pytest.mark.asyncio
+async def test_business_name_substitution_in_inference():
+    await global_db.execute(
+        "INSERT INTO agents (name, system_prompt, is_active) VALUES ($1, $2, $3)",
+        "Sanguches Juan", "Eres el asistente virtual de {{business_name}}. Responde en español.", True,
+    )
+    engine = InferenceEngine()
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock(message=MagicMock(content="Hola!"))]
+    mock_response.usage = None
+    captured_messages = []
+
+    async def capture_messages(messages, **kwargs):
+        captured_messages.extend(messages)
+        return mock_response
+
+    with patch.object(engine._llm, "chat_completion", side_effect=capture_messages), \
+         patch.object(engine._llm, "get_client", return_value=MagicMock()):
+        engine._llm._available = True
+        await engine.generate("Hola")
+
+    system_msg = next(m for m in captured_messages if m["role"] == "system")
+    assert "Sanguches Juan" in system_msg["content"]
+    assert "{{business_name}}" not in system_msg["content"]
+
+
+@pytest.mark.asyncio
+async def test_business_name_not_substituted_when_absent():
+    await global_db.execute(
+        "INSERT INTO agents (name, system_prompt, is_active) VALUES ($1, $2, $3)",
+        "Plain Bot", "Eres un asistente simple.", True,
+    )
+    engine = InferenceEngine()
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock(message=MagicMock(content="Ok!"))]
+    mock_response.usage = None
+    captured_messages = []
+
+    async def capture_messages(messages, **kwargs):
+        captured_messages.extend(messages)
+        return mock_response
+
+    with patch.object(engine._llm, "chat_completion", side_effect=capture_messages), \
+         patch.object(engine._llm, "get_client", return_value=MagicMock()):
+        engine._llm._available = True
+        await engine.generate("Hola")
+
+    system_msg = next(m for m in captured_messages if m["role"] == "system")
+    assert system_msg["content"] == "Eres un asistente simple."

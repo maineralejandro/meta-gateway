@@ -8,6 +8,8 @@ interface Message {
   text: string
   media_type: string | null
   created_at: string
+  meta_message_id?: string | null
+  meta_status?: string | null
 }
 
 interface Props {
@@ -60,21 +62,26 @@ export default function ChatPanel({ messages, phone, state, onInspectDecision }:
         {messages.map(msg => {
           const style = SOURCE_STYLE[msg.source] || SOURCE_STYLE.customer
           const isCustomer = msg.direction === 'inbound'
+          const isTemp = msg.id < 0
+          const isPending = !isCustomer && !isTemp && !msg.meta_message_id
           return (
             <div key={msg.id} className={`flex ${isCustomer ? 'justify-start' : 'justify-end'}`}>
-              <div className={`max-w-[75%] rounded-lg px-3 py-2 ${style.bubble} ${msg.source === 'bot' && onInspectDecision ? 'cursor-pointer hover:ring-1 hover:ring-blue-500/50 transition-all' : ''}`}
-               onClick={() => msg.source === 'bot' && onInspectDecision && onInspectDecision(msg.id)}
-            >
-            {msg.source !== 'customer' && (
-              <span className="text-xs opacity-60 block mb-1">
-                {style.prefix} {msg.source}
-                {msg.source === 'bot' && onInspectDecision && (
-                  <span className="ml-1 opacity-70" title="Ver decisión del agente">🧠</span>
+              <div className={`max-w-[75%] rounded-lg px-3 py-2 ${style.bubble} ${isTemp || isPending ? 'opacity-60' : ''} ${msg.source === 'bot' && onInspectDecision ? 'cursor-pointer hover:ring-1 hover:ring-blue-500/50 transition-all' : ''}`}
+                onClick={() => msg.source === 'bot' && onInspectDecision && onInspectDecision(msg.id)}
+              >
+                {msg.source !== 'customer' && (
+                  <span className="text-xs opacity-60 block mb-1">
+                    {style.prefix} {msg.source}
+                    {msg.source === 'bot' && onInspectDecision && (
+                      <span className="ml-1 opacity-70" title="Ver decisión del agente">🧠</span>
+                    )}
+                  </span>
                 )}
-              </span>
-            )}
-            <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
                 <span className="text-xs opacity-40 block mt-1 text-right">
+                  {isTemp && <span className="text-gray-400 mr-1">Enviando...</span>}
+                  {isPending && <span className="text-yellow-500 mr-1">⏳ Pendiente</span>}
+                  {msg.meta_status && <span className="text-gray-500 mr-1">{msg.meta_status}</span>}
                   {new Date(msg.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>

@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.cart_state import CartState
+from core.capabilities.cart import CartCapability as CartState
 from core.inference import (
     InferenceEngine,
     _guess_capability,

@@ -8,6 +8,7 @@ import structlog
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from core.capabilities.base import registry as capability_registry
+from core.errors import InfraError
 from core.events import emit
 from core.inference import inference_engine
 from core.memory import memory_manager
@@ -19,6 +20,7 @@ from core.metrics import (
     LLM_REQUESTS,
     MESSAGES_RECEIVED,
     MESSAGES_SENT,
+    SILENT_ERRORS,
     refresh_active_conversations,
 )
 from core.security import sanitize_llm_output
@@ -160,6 +162,7 @@ class HITLRouter:
             await db.insert_trace(trace_record)
         except Exception as e:
             logger.error("trace_save_error", phone=phone, error=str(e))
+            SILENT_ERRORS.labels(component="trace").inc()
 
     async def _analyze_sentiment(self, text: str) -> dict[str, Any]:
         try:
@@ -169,7 +172,20 @@ class HITLRouter:
             return cast("dict[str, Any]", result)
         except Exception as e:
             logger.warning("sentiment_analysis_failed", error=str(e))
-            return {"sentiment": "neutral", "score": 0.5, "confidence": 0.5}
+            SILENT_ERRORS.labels(component="sentiment").inc()
+            return self._heuristic_sentiment(text)
+
+    def _heuristic_sentiment(self, text: str) -> dict[str, Any]:
+        t = text.lower()
+        negative_words = ["molesto", "enojado", "terrible", "pesimo", "horrible", "cancelar", "queja", "reclamo", "devolución", "mal", "pésimo"]
+        positive_words = ["gracias", "excelente", "genial", "perfecto", "bien", "bueno"]
+        neg = sum(1 for w in negative_words if w in t)
+        pos = sum(1 for w in positive_words if w in t)
+        if neg > pos:
+            return {"sentiment": "negative", "score": 0.2, "confidence": 0.3}
+        if pos > neg:
+            return {"sentiment": "positive", "score": 0.8, "confidence": 0.6}
+        return {"sentiment": "neutral", "score": 0.5, "confidence": 0.5}
 
     async def _resolve_capabilities(self, agent_id: int | None) -> list[Any]:
         try:
@@ -331,7 +347,7 @@ class HITLRouter:
                 await client.send_template(phone, template["name"], components=template.get("components"))
             else:
                 logger.warning("no_template_for_offline_reply", phone=phone)
-                await client.send_text(phone, response_text)
+                return
         MESSAGES_SENT.labels(source="bot").inc()
 
         await db.insert_turn(Turn(
@@ -421,6 +437,8 @@ class HITLRouter:
                 session_id, db, sentiment_result, capabilities, decision_data, trace,
             )
 
+        except InfraError:
+            raise
         except Exception as e:
             logger.error("process_turn_error", phone=phone, error=str(e), error_type=type(e).__name__)
             await emit("error", {
@@ -454,11 +472,11 @@ async def _can_send_free_form(phone: str, db: Any) -> bool:
             elapsed = (datetime.now(tz=UTC) - lma_dt).total_seconds()
             return elapsed < 86400
         except (ValueError, TypeError):
-            return True
+            return False
     if isinstance(lma, datetime):
         elapsed = (datetime.now(tz=UTC) - lma).total_seconds()
         return bool(elapsed < 86400)
-    return True
+    return False
 
 
 async def _select_template_for_reply(reply_text: str, db: Any) -> dict[str, Any] | None:
@@ -485,3 +503,4 @@ async def _safe_summarize(phone: str, memory: Any) -> None:
         await memory.maybe_summarize(phone)
     except Exception as e:
         logger.error("summarize_error", phone=phone, error=str(e))
+        SILENT_ERRORS.labels(component="summarize").inc()

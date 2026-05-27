@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from core.cart_state import CartState
+from core.capabilities.cart import CartCapability as CartState
 from core.inference import ESCALATE_TOOL_SCHEMA, GenerationResult, InferenceEngine, _build_tool_map
 from db.database import db as global_db
 

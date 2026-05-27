@@ -63,9 +63,10 @@ async def e2e_llm_engine(model_override: str | None = None, max_retries: int = 2
 async def _reset_cart_and_capabilities():
     from core.capabilities.base import registry as capability_registry
     from core.capabilities.cart import CartCapability
-    from core.cart_state import cart_state
-    cart_state._carts.clear()
-    cart_state._loaded_phones.clear()
+    from core.container import container
+    cart_cap = container.cart_capability if hasattr(container, 'cart_capability') and container.cart_capability else CartCapability()
+    cart_cap._carts.clear()
+    cart_cap._loaded_phones.clear()
     capability_registry.register(CartCapability)
 
 

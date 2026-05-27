@@ -37,7 +37,8 @@ services:
       - ./dashboard:/app/dashboard
       - dashboard_node_modules:/app/dashboard/node_modules
     environment:
-      NEXT_PUBLIC_DASHBOARD_TOKEN: ${NEXT_PUBLIC_DASHBOARD_TOKEN:-hermes_dashboard_2024}
+      DASHBOARD_TOKEN: ${DASHBOARD_TOKEN:-hermes_dashboard_2024}
+      DASHBOARD_AUTH_SECRET: ${DASHBOARD_AUTH_SECRET:-hermes_auth_secret_change_in_production}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.meta-gateway.localhost}
       NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-wss://api.meta-gateway.localhost/ws}
     networks:

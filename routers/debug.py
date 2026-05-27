@@ -1,3 +1,4 @@
+import hashlib
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -116,7 +117,7 @@ async def health_detail(db: Database = Depends(get_db)) -> Any:
             "available": llm_client.available,
             "model": settings.LLM_MODEL,
             "base_url": settings.LLM_BASE_URL,
-            "key_prefix": settings.LLM_API_KEY[:8] + "..." if settings.LLM_API_KEY and not settings.LLM_API_KEY.startswith("nvapi-REPLACE") else "not_set",
+            "key_fingerprint": hashlib.sha256(settings.LLM_API_KEY.encode()).hexdigest()[:8] + "..." if settings.LLM_API_KEY and not settings.LLM_API_KEY.startswith("nvapi-REPLACE") else "not_set",
         },
         "trace_stats_24h": stats,
         "last_error": last_error,

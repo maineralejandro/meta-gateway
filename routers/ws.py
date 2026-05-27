@@ -1,4 +1,7 @@
 import asyncio
+import hashlib
+import hmac
+from http.cookies import SimpleCookie
 from typing import Any
 
 import structlog
@@ -8,6 +11,31 @@ from core.config import settings
 
 logger = structlog.get_logger()
 router = APIRouter()
+
+_COOKIE_NAME = "hermes_session"
+
+
+def _validate_session_cookie(cookie_header: str | None) -> bool:
+    if not cookie_header:
+        return False
+    cookies = SimpleCookie(cookie_header)
+    morsel = cookies.get(_COOKIE_NAME)
+    if not morsel:
+        return False
+    parts = morsel.value.split(":", 1)
+    if len(parts) != 2:
+        return False
+    token, signature = parts
+    if not settings.DASHBOARD_TOKEN or not settings.DASHBOARD_AUTH_SECRET:
+        return False
+    if token != settings.DASHBOARD_TOKEN:
+        return False
+    expected = hmac.new(
+        settings.DASHBOARD_AUTH_SECRET.encode(),
+        token.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature)
 
 
 class WebSocketConnectionManager:
@@ -49,26 +77,30 @@ manager = WebSocketConnectionManager()
 async def websocket_endpoint(websocket: WebSocket) -> None:
     await websocket.accept()
     if settings.DASHBOARD_TOKEN:
-        query_token = websocket.query_params.get("token")
-        if query_token == settings.DASHBOARD_TOKEN:
+        cookie_header = websocket.headers.get("cookie")
+        if _validate_session_cookie(cookie_header):
             await websocket.send_json({"type": "auth_ok"})
         else:
-            try:
-                data = await asyncio.wait_for(websocket.receive_json(), timeout=5)
-            except TimeoutError:
-                await websocket.close(code=4001, reason="Auth timeout")
-                return
-            except WebSocketDisconnect:
-                return
-            if data.get("type") != "auth" or data.get("token") != settings.DASHBOARD_TOKEN:
-                await websocket.close(code=4001, reason="Invalid token")
-                return
-            await websocket.send_json({"type": "auth_ok"})
-        await manager.connect(websocket)
-        try:
-            while True:
-                data = await websocket.receive_json()
-                if data.get("type") == "ping":
-                    await manager.send_to_one(websocket, {"type": "pong"})
-        except WebSocketDisconnect:
-            manager.disconnect(websocket)
+            query_token = websocket.query_params.get("token")
+            if query_token == settings.DASHBOARD_TOKEN:
+                await websocket.send_json({"type": "auth_ok"})
+            else:
+                try:
+                    data = await asyncio.wait_for(websocket.receive_json(), timeout=5)
+                except TimeoutError:
+                    await websocket.close(code=4001, reason="Auth timeout")
+                    return
+                except WebSocketDisconnect:
+                    return
+                if data.get("type") != "auth" or data.get("token") != settings.DASHBOARD_TOKEN:
+                    await websocket.close(code=4001, reason="Invalid token")
+                    return
+                await websocket.send_json({"type": "auth_ok"})
+    await manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            if data.get("type") == "ping":
+                await manager.send_to_one(websocket, {"type": "pong"})
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)

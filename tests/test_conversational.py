@@ -10,11 +10,14 @@ import pytest_asyncio
 
 from core.capabilities.base import registry as capability_registry
 from core.capabilities.cart import CartCapability
-from core.cart_state import cart_state
+from core.capabilities.cart import CartCapability as CartState
+from core.container import container
 from core.memory import WINDOW_SIZE, memory_manager
 from core.sentiment import SentimentAnalyzer
 from db.database import db
 from routers.webhook import receive_webhook
+
+cart_state = getattr(container, 'cart_capability', None) or CartState()
 
 _CATALOG_SEED = [
     ("item_a", "Item A Special", 3700, "general"),

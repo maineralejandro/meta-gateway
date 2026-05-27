@@ -309,6 +309,8 @@ class InferenceEngine:
                 if agent
                 else "Eres un asistente servicial. Responde de forma clara y directa."
             )
+            if agent and "{{business_name}}" in system_prompt:
+                system_prompt = system_prompt.replace("{{business_name}}", agent.name)
             resolved = capabilities if capabilities is not None else await capability_registry.resolve(agent_id)
             escalation_marker = agent.escalation_marker if agent else "ESCALATE_TO_HUMAN"
 

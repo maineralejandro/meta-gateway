@@ -4,10 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytest_asyncio
 
-from core.cart_state import CartState, cart_state
+from core.capabilities.cart import CartCapability as CartState
+from core.container import container
 from core.memory import WINDOW_SIZE, MemoryManager
 from db.database import db
 from db.models import Turn
+
+cart_state = getattr(container, 'cart_capability', None) or CartState()
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -310,7 +313,7 @@ async def test_cart_state_add_item():
         "item_c": {"name": "Item C Special", "price": 3400},
         "item_e": {"name": "Side E Medium", "price": 3700},
     }
-    state._persist = AsyncMock()
+    state._persist_or_revert = AsyncMock()
     state._ensure_loaded = AsyncMock()
     await state.add_item("+569", "item_c", 3)
     await state.add_item("+569", "item_e", 2)
@@ -331,7 +334,7 @@ async def test_cart_state_format_for_context():
         "item_c": {"name": "Item C Special", "price": 3400},
         "item_e": {"name": "Side E Medium", "price": 3700},
     }
-    state._persist = AsyncMock()
+    state._persist_or_revert = AsyncMock()
     state._ensure_loaded = AsyncMock()
     result = await state.format_for_context("+569")
     assert result is not None

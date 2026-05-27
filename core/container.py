@@ -1,3 +1,5 @@
+from typing import Any
+
 import structlog
 
 logger = structlog.get_logger()
@@ -6,8 +8,10 @@ logger = structlog.get_logger()
 class ServiceContainer:
     def __init__(self) -> None:
         self._built = False
+        self.cart_capability: Any = None
 
     def build(self) -> None:
+        from core.capabilities.cart import CartCapability
         from core.hitl_router import HITLRouter
         from core.inference import InferenceEngine
         from core.llm_client import LLMClient
@@ -33,6 +37,7 @@ class ServiceContainer:
             meta_client_override=self.meta_client,
         )
         self.turn_builder.set_process_turn_fn(self.hitl_router.process_turn)
+        self.cart_capability = CartCapability()
         self._built = True
 
     def wire_singletons(self) -> None:

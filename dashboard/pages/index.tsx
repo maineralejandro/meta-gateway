@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useRouter } from 'next/router'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useConversations, useMessages, useDecisions } from '../hooks/useConversationData'
 import { buildWSHandlers } from '../hooks/useWSHandlers'
+import { checkAuth } from '../lib/auth'
 import type { WSNotification, ErrorNotification } from '../lib/types'
 import ConversationList from '../components/ConversationList'
 import ChatPanel from '../components/ChatPanel'
@@ -10,20 +12,22 @@ import MessageInput from '../components/MessageInput'
 import NotificationBanner from '../components/NotificationBanner'
 import ErrorBanner from '../components/ErrorBanner'
 import AgentEditor from '../components/AgentEditor'
+import CatalogManager from '../components/CatalogManager'
 import DecisionPanel from '../components/DecisionPanel'
 import ObservabilityTab from '../components/observability/ObservabilityTab'
 
 const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/ws'
-const DASHBOARD_TOKEN = process.env.NEXT_PUBLIC_DASHBOARD_TOKEN || ''
 
 export default function WhatsAppDashboard() {
-  const [view, setView] = useState<'conversations' | 'agent' | 'observability'>('conversations')
+  const router = useRouter()
+  const [view, setView] = useState<'conversations' | 'agent' | 'catalog' | 'observability'>('conversations')
   const [selectedPhone, setSelectedPhone] = useState('')
   const [notifications, setNotifications] = useState<WSNotification[]>([])
   const [filterState, setFilterState] = useState<string | null>(null)
   const [inspectedMessageId, setInspectedMessageId] = useState<number | null>(null)
+  const [authed, setAuthed] = useState(false)
 
-  const { conversations, setConversations, loadConversations, updateState, errors: convErrors, setErrors: setConvErrors } = useConversations()
+  const { conversations, setConversations, loadConversations, updateState, closeSession, errors: convErrors, setErrors: setConvErrors } = useConversations()
   const { messages, setMessages, loadMessages, sendMessage, resetUnread, errors: msgErrors, setErrors: setMsgErrors } = useMessages()
   const { decisions, setDecisions, loadDecisions } = useDecisions()
 
@@ -59,7 +63,14 @@ export default function WhatsAppDashboard() {
     loadMessages,
   }), [selectedPhone, setConversations, setMessages, setDecisions, loadConversations, loadMessages])
 
-  useWebSocket(WS_BASE_URL, wsHandlers, DASHBOARD_TOKEN)
+  useWebSocket(WS_BASE_URL, wsHandlers, undefined)
+
+  useEffect(() => {
+    checkAuth().then(ok => {
+      if (ok) setAuthed(true)
+      else router.replace('/login')
+    })
+  }, [router])
 
   useEffect(() => {
     loadConversations()
@@ -90,6 +101,12 @@ export default function WhatsAppDashboard() {
           className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${view === 'agent' ? 'bg-gray-800 text-emerald-400' : 'text-gray-400 hover:text-gray-200'}`}
         >
           Gestion de Agente
+        </button>
+        <button
+          onClick={() => setView('catalog')}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${view === 'catalog' ? 'bg-gray-800 text-emerald-400' : 'text-gray-400 hover:text-gray-200'}`}
+        >
+          Catalogo
         </button>
         <button
           onClick={() => setView('observability')}
@@ -139,11 +156,12 @@ export default function WhatsAppDashboard() {
             </div>
 
           <div className="w-72 border-l border-gray-800 bg-gray-900 flex-shrink-0 overflow-y-auto custom-scrollbar">
-            <StateToggle
-              currentState={selectedConversation?.state || 'BOT_ACTIVE'}
-              phone={selectedPhone}
-              onStateChange={updateState}
-            />
+              <StateToggle
+                currentState={selectedConversation?.state || 'BOT_ACTIVE'}
+                phone={selectedPhone}
+                onStateChange={updateState}
+                onCloseSession={closeSession}
+              />
 
             {selectedConversation && (
               <DecisionPanel
@@ -158,6 +176,10 @@ export default function WhatsAppDashboard() {
 ) : view === 'agent' ? (
   <div className="flex-1 h-full">
     <AgentEditor />
+  </div>
+) : view === 'catalog' ? (
+  <div className="flex-1 h-full">
+    <CatalogManager />
   </div>
 ) : (
   <div className="flex-1 h-full">

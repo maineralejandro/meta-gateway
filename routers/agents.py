@@ -78,15 +78,16 @@ async def activate_agent(agent_id: int, db: Database = Depends(get_db)) -> dict[
 
 @router.post("/{agent_id}/reload")
 async def reload_agent(agent_id: int) -> dict[str, Any]:
-    from core.cart_state import cart_state
-    await cart_state.reload_catalog_from_db()
+    from core.container import container
+    cart_cap = container.cart_capability
+    await cart_cap.reload_catalog_from_db()
     registry.invalidate(agent_id)
     await inference_engine.reload()
     return {
         "status": "success",
         "message": "Reloaded: catalog from DB + capability cache + inference cache",
-        "catalog_items": len(cart_state._catalog),
-        "needs_search": cart_state.needs_search,
+        "catalog_items": len(cart_cap._catalog),
+        "needs_search": cart_cap.needs_search,
     }
 
 

@@ -98,6 +98,12 @@ APP_INFO = Info(
     "Hermes WhatsApp HITL Gateway",
 )
 
+SILENT_ERRORS = Counter(
+    "hermes_silent_errors_total",
+    "Non-critical errors swallowed but metricated",
+    ["component"],
+)
+
 
 async def refresh_active_conversations(db: Any = None) -> None:
     try:

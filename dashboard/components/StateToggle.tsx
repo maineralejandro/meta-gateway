@@ -2,6 +2,7 @@ interface Props {
   currentState: string
   phone: string
   onStateChange: (phone: string, state: string) => void
+  onCloseSession: (phone: string) => void
 }
 
 const STATES = [
@@ -10,7 +11,7 @@ const STATES = [
   { value: 'HUMAN_ONLY', label: 'Solo Humano', color: 'bg-red-600 hover:bg-red-500', icon: '👤' },
 ]
 
-export default function StateToggle({ currentState, phone, onStateChange }: Props) {
+export default function StateToggle({ currentState, phone, onStateChange, onCloseSession }: Props) {
   if (!phone) return null
 
   return (
@@ -34,6 +35,16 @@ export default function StateToggle({ currentState, phone, onStateChange }: Prop
             {s.value === currentState && <span className="text-xs">● Activo</span>}
           </button>
         ))}
+      </div>
+      <div className="mt-4 pt-4 border-t border-gray-700">
+        <button
+          onClick={() => {
+            if (confirm('Cerrar sesion y resetear a Bot Activo?')) onCloseSession(phone)
+          }}
+          className="w-full py-2 px-3 rounded text-sm font-medium flex items-center justify-center gap-2 bg-gray-800 hover:bg-red-900/50 hover:text-red-300 text-gray-400 transition-colors border border-gray-700"
+        >
+          ✕ Cerrar Sesion
+        </button>
       </div>
     </div>
   )

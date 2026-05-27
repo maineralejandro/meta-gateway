@@ -34,8 +34,10 @@ class Settings(BaseSettings):
     API_PORT: int = 8080
 
     DASHBOARD_TOKEN: str = ""
+    DASHBOARD_AUTH_SECRET: str = ""
     CORS_ORIGINS: str = "*"
     SKIP_STARTUP_VALIDATION: bool = False
+    SKIP_WEBHOOK_SIGNATURE: bool = False
 
     TOOL_MAX_ITERATIONS: int = 5
     TOOL_EXECUTION_TTL: int = 300
