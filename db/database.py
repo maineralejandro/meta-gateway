@@ -197,7 +197,9 @@ class Database:
                 "UPDATE sessions SET ended_at=NOW(), end_reason=$1 WHERE id=$2",
                 "timeout", old_session_id,
             )
-            if new_state and new_state != "BOT_ACTIVE":
+            if new_state in ("HUMAN_ONLY", "PENDING_APPROVAL"):
+                pass
+            else:
                 await conn.execute(
                     "UPDATE conversations SET state='BOT_ACTIVE', requires_human_review=FALSE WHERE phone=$1",
                     phone,
@@ -283,12 +285,23 @@ class Database:
         description: str = "", tags: str = "[]", size: str = "",
         specifications: str = "",
         subcategory: str = "", base_price: int | None = None,
+        image_url: str | None = None,
     ) -> None:
         return await self.catalog.upsert_item(
             key, name, price, category, is_available, sort_order,
             description, tags, size, specifications,
-            subcategory, base_price,
+            subcategory, base_price, image_url,
         )
+
+    async def load_catalog_item(self, key: str) -> dict[str, Any] | None:
+        rows = await self.catalog.load_items()
+        for row in rows:
+            if row["key"] == key:
+                return row
+        return None
+
+    async def delete_catalog_item(self, key: str) -> None:
+        await self.execute("DELETE FROM catalog_items WHERE key=$1", key)
 
     async def load_catalog_variants(self) -> list[dict[str, Any]]:
         return await self.variants.load_all()

@@ -7,6 +7,7 @@ import structlog
 
 from core.capabilities.base import BaseCapability
 from core.capabilities.catalog_search import SEARCH_THRESHOLD, CatalogSearch
+from core.errors import PersistError
 from core.utils import slugify
 
 logger = structlog.get_logger()
@@ -240,6 +241,40 @@ class CartCapability(BaseCapability):
                 await db.carts.delete(phone)
         except Exception as e:
             logger.error("cart_persist_error", phone=phone, error=str(e))
+            raise PersistError(str(e)) from e
+
+    async def _persist_or_revert(self, phone: str) -> None:
+        cart = self._carts.get(phone)
+        try:
+            from db.database import get_db
+            db = await get_db()
+            if cart and cart["items"]:
+                await db.carts.save(phone, json.dumps(cart["items"]), cart["total"])
+            else:
+                await db.carts.delete(phone)
+        except Exception as e:
+            logger.error("cart_persist_error_reverting", phone=phone, error=str(e))
+            try:
+                await self._reconcile_from_db(phone)
+            except Exception as reconcile_err:
+                logger.error("cart_reconcile_failed", phone=phone, error=str(reconcile_err))
+            raise PersistError(str(e)) from e
+
+    async def _reconcile_from_db(self, phone: str) -> None:
+        from db.database import get_db
+        db = await get_db()
+        row = await db.carts.load(phone)
+        if row:
+            items_json, total = row
+            try:
+                items = json.loads(items_json)
+                self._carts[phone] = {"items": items, "total": total}
+            except (json.JSONDecodeError, TypeError):
+                logger.warning("cart_reconcile_corrupt", phone=phone)
+                self._carts.pop(phone, None)
+        else:
+            self._carts.pop(phone, None)
+        logger.info("cart_reconciled_from_db", phone=phone)
 
     async def get_cart(self, phone: str) -> dict[str, Any]:
         await self._ensure_loaded(phone)
@@ -741,7 +776,7 @@ class CartCapability(BaseCapability):
             cart["items"].append(item_data)
 
         self._recalc_total(phone)
-        await self._persist(phone)
+        await self._persist_or_revert(phone)
         logger.info("cart_item_added", phone=phone, key=item_key, qty=quantity, modifiers=len(applied_modifiers))
 
     async def remove_item(self, phone: str, item_key: str, quantity: int | None = None) -> None:
@@ -757,7 +792,7 @@ class CartCapability(BaseCapability):
                     existing["quantity"] -= quantity
                 break
         self._recalc_total(phone)
-        await self._persist(phone)
+        await self._persist_or_revert(phone)
 
     def _recalc_total(self, phone: str) -> None:
         cart = self._carts.get(phone)
@@ -831,14 +866,16 @@ class CartCapability(BaseCapability):
         return "\n".join(lines)
 
     async def clear(self, phone: str, config: dict[str, Any] | None = None) -> None:
-        db_ok = False
         try:
             from db.database import get_db
             db = await get_db()
             await db.carts.delete(phone)
-            db_ok = True
         except Exception as e:
-            logger.error("cart_clear_error", phone=phone, error=str(e))
+            logger.error("cart_clear_persist_error", phone=phone, error=str(e))
+            try:
+                await self._reconcile_from_db(phone)
+            except Exception:
+                logger.error("cart_reconcile_failed", phone=phone)
+            return
         self._carts.pop(phone, None)
-        if db_ok:
-            self._loaded_phones.discard(phone)
+        self._loaded_phones.discard(phone)
