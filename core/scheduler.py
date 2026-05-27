@@ -118,14 +118,18 @@ class MessageScheduler:
 
         db = await get_db()
         rows = await db.fetchall(
-            """SELECT c.phone FROM conversations c
-            WHERE c.last_message_at < NOW() - make_interval(days => $1)
-            AND c.state = 'BOT_ACTIVE'
-            AND NOT EXISTS (
-                SELECT 1 FROM scheduled_messages sm
-                WHERE sm.phone = c.phone AND sm.status = 'PENDING'
-            )
-            LIMIT 100""",
+        """SELECT c.phone FROM conversations c
+        WHERE c.last_message_at < NOW() - make_interval(days => $1)
+        AND c.state = 'BOT_ACTIVE'
+        AND NOT EXISTS (
+            SELECT 1 FROM scheduled_messages sm
+            WHERE sm.phone = c.phone AND sm.status = 'PENDING'
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM agent_decisions ad
+            WHERE ad.phone = c.phone AND ad.escalate_reason IS NOT NULL
+        )
+        LIMIT 100""",
             settings.RE_ENGAGEMENT_DAYS,
         )
         if not rows:
