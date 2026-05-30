@@ -8,8 +8,10 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 export function useConversations() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [errors, setErrors] = useState<ErrorNotification[]>([])
+  const [loadingConv, setLoadingConv] = useState(false)
 
   const loadConversations = useCallback(async () => {
+    setLoadingConv(true)
     try {
       const res = await authFetch(`${API_URL}/api/conversations`)
       if (!res.ok) throw new Error(`Conversations: ${res.status} ${res.statusText}`)
@@ -18,6 +20,8 @@ export function useConversations() {
     } catch (e: any) {
       console.error('Failed to load conversations', e)
       setErrors(prev => addError(prev, e?.message || 'Error cargando conversaciones'))
+    } finally {
+      setLoadingConv(false)
     }
   }, [])
 
@@ -51,14 +55,30 @@ export function useConversations() {
     }
   }, [loadConversations])
 
-  return { conversations, setConversations, loadConversations, updateState, closeSession, errors, setErrors }
+  const transferAgent = useCallback(async (phone: string, agentId: number) => {
+    try {
+      const res = await authFetch(`${API_URL}/api/conversations/agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, agent_id: agentId }),
+      })
+      if (!res.ok) throw new Error(`Transfer agent: ${res.status}`)
+      loadConversations()
+    } catch (e: any) {
+      setErrors(prev => addError(prev, e?.message || 'Error transfiriendo agente'))
+    }
+  }, [loadConversations])
+
+  return { conversations, setConversations, loadConversations, updateState, closeSession, transferAgent, loadingConv, errors, setErrors }
 }
 
 export function useMessages() {
   const [messages, setMessages] = useState<Message[]>([])
   const [msgErrors, setMsgErrors] = useState<ErrorNotification[]>([])
+  const [loadingMsgs, setLoadingMsgs] = useState(false)
 
   const loadMessages = useCallback(async (phone: string) => {
+    setLoadingMsgs(true)
     try {
       const res = await authFetch(`${API_URL}/api/messages/${phone}`)
       if (!res.ok) throw new Error(`Messages: ${res.status} ${res.statusText}`)
@@ -66,8 +86,9 @@ export function useMessages() {
       setMessages(data)
     } catch (e: any) {
       console.error('Failed to load messages', e)
-      setMessages([])
       setMsgErrors(prev => addError(prev, e?.message || 'Error cargando mensajes'))
+    } finally {
+      setLoadingMsgs(false)
     }
   }, [])
 
@@ -75,8 +96,15 @@ export function useMessages() {
     const tempId = -(Date.now())
     setMessages(prev => [...prev, {
       id: tempId, phone, direction: 'outbound', source: 'human',
-      text: message, media_type: null, created_at: new Date().toISOString(),
+      text: message, media_type: null, media_url: null, created_at: new Date().toISOString(),
     }])
+
+    const timeoutId = setTimeout(() => {
+      setMessages(prev => prev.map(m =>
+        m.id === tempId ? { ...m, _error: true } : m
+      ))
+    }, 10000)
+
     try {
       const res = await authFetch(`${API_URL}/api/messages/send`, {
         method: 'POST',
@@ -85,6 +113,7 @@ export function useMessages() {
       })
       if (!res.ok) throw new Error(`Send message: ${res.status} ${res.statusText}`)
     } catch (e: any) {
+      clearTimeout(timeoutId)
       setMessages(prev => prev.filter(m => m.id !== tempId))
       setMsgErrors(prev => addError(prev, e?.message || 'Error enviando mensaje'))
     }
@@ -93,10 +122,12 @@ export function useMessages() {
   const resetUnread = useCallback(async (phone: string) => {
     try {
       await authFetch(`${API_URL}/api/conversations/${phone}/reset-unread`, { method: 'POST' })
-    } catch {}
+    } catch {
+      setMsgErrors(prev => addError(prev, 'Error reseteando unread'))
+    }
   }, [])
 
-  return { messages, setMessages, loadMessages, sendMessage, resetUnread, errors: msgErrors, setErrors: setMsgErrors }
+  return { messages, setMessages, loadMessages, sendMessage, resetUnread, loadingMsgs, errors: msgErrors, setErrors: setMsgErrors }
 }
 
 export function useDecisions() {

@@ -92,3 +92,29 @@ async def close_session(phone: str, req: CloseSessionRequest) -> dict[str, Any]:
 
     logger.info("session_closed_manually", phone=phone, session_id=session_id)
     return {"status": "ok", "session_id": session_id}
+
+
+class AddNoteRequest(BaseModel):
+    note: str
+    author: str = "human"
+
+
+@router.get("/{phone}/notes")
+async def get_notes(phone: str) -> Any:
+    db = await get_db()
+    return await db.get_conversation_notes(phone)
+
+
+@router.post("/{phone}/notes")
+async def add_note(phone: str, req: AddNoteRequest) -> Any:
+    db = await get_db()
+    return await db.add_conversation_note(phone, req.note, req.author)
+
+
+@router.delete("/{phone}/notes/{note_id}")
+async def delete_note(phone: str, note_id: int) -> Any:
+    db = await get_db()
+    deleted = await db.delete_conversation_note(note_id, phone)
+    if not deleted:
+        return JSONResponse(status_code=404, content={"error": "not_found"})
+    return {"status": "ok"}

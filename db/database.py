@@ -69,6 +69,27 @@ class Database:
         self.whatsapp_templates = WhatsAppTemplateRepository()
         self.scheduled_messages = ScheduledMessageRepository()
 
+    async def get_conversation_notes(self, phone: str) -> list[dict[str, Any]]:
+        rows = await self.fetchall(
+            "SELECT id, phone, note, author, created_at FROM conversation_notes WHERE phone=$1 ORDER BY created_at DESC",
+            phone,
+        )
+        return [dict(r) for r in rows]
+
+    async def add_conversation_note(self, phone: str, note: str, author: str = "human") -> dict[str, Any]:
+        row = await self.fetchone(
+            "INSERT INTO conversation_notes (phone, note, author) VALUES ($1, $2, $3) RETURNING id, phone, note, author, created_at",
+            phone, note, author,
+        )
+        return dict(row) if row else {}
+
+    async def delete_conversation_note(self, note_id: int, phone: str) -> bool:
+        result = await self.fetchone(
+            "DELETE FROM conversation_notes WHERE id=$1 AND phone=$2 RETURNING id",
+            note_id, phone,
+        )
+        return result is not None
+
     async def execute(self, query: str, *args: Any) -> None:
         pool = await get_pool()
         async with pool.acquire() as conn:

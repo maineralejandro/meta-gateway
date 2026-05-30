@@ -16,9 +16,11 @@ export interface Message {
   source: string
   text: string
   media_type: string | null
+  media_url: string | null
   created_at: string
   meta_message_id?: string | null
   meta_status?: string | null
+  _error?: boolean
 }
 
 export interface WSNotification {
@@ -125,5 +127,5 @@ export interface AgentCapabilityState {
 }
 
 export function addError(prev: ErrorNotification[], message: string): ErrorNotification[] {
-  return [{ id: `err-${Date.now()}`, message, timestamp: Date.now() }, ...prev].slice(0, 3)
+  return [{ id: `err-${Date.now()}`, message, timestamp: Date.now() }, ...prev].slice(0, 10)
 }
