@@ -76,6 +76,21 @@ async def activate_agent(agent_id: int, db: Database = Depends(get_db)) -> dict[
     await inference_engine.reload()
     return {"status": "success", "message": f"Agent {agent_id} activated"}
 
+
+@router.delete("/{agent_id}")
+async def delete_agent(agent_id: int, db: Database = Depends(get_db)) -> dict[str, str]:
+    existing = await db.get_agent(agent_id=agent_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if existing.is_active:
+        raise HTTPException(status_code=400, detail="Cannot delete active agent. Deactivate first.")
+
+    await db.execute_transaction([
+        ("DELETE FROM agent_capabilities WHERE agent_id=$1", (agent_id,)),
+        ("DELETE FROM agents WHERE id=$1", (agent_id,)),
+    ])
+    return {"status": "ok"}
+
 @router.post("/{agent_id}/reload")
 async def reload_agent(agent_id: int) -> dict[str, Any]:
     from core.container import container

@@ -409,6 +409,33 @@ class MetaAPIClient:
         else:
             logger.error("meta_api_error", status=status_code, body=body[:300])
 
+    async def retrieve_media_url(self, media_id: str) -> str | None:
+        try:
+            client = await self._get_client()
+            resp = await client.get(f"{settings.META_API_URL}/{media_id}")
+            if resp.status_code >= 400:
+                logger.error("meta_media_retrieve_failed", media_id=media_id, status=resp.status_code)
+                return None
+            data = resp.json()
+            url = data.get("url")
+            return url
+        except Exception as e:
+            logger.error("meta_media_retrieve_error", media_id=media_id, error=str(e))
+            return None
+
+    async def download_media(self, media_url: str) -> tuple[bytes, str] | None:
+        try:
+            client = await self._get_client()
+            resp = await client.get(media_url)
+            if resp.status_code >= 400:
+                logger.error("meta_media_download_failed", status=resp.status_code)
+                return None
+            content_type = resp.headers.get("content-type", "application/octet-stream")
+            return resp.content, content_type
+        except Exception as e:
+            logger.error("meta_media_download_error", error=str(e))
+            return None
+
     async def close(self) -> None:
         if self._client and not self._client.is_closed:
             await self._client.aclose()

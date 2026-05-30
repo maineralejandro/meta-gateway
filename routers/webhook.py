@@ -188,6 +188,9 @@ async def _handle_message(msg: dict[str, Any], value: dict[str, Any], correlatio
         "direction": "inbound",
         "source": "customer",
         "state": state,
+        "meta_message_id": meta_msg_id,
+        "media_type": media_type,
+        "media_url": media_url,
     })
 
     if state == "HUMAN_ONLY" or requires_human:

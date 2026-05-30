@@ -3,6 +3,7 @@ from typing import Any
 
 import structlog
 from fastapi import APIRouter
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from core.events import emit
@@ -70,3 +71,15 @@ async def get_decision_for_message(phone: str, message_id: int) -> Any:
     if decision is None:
         return {"error": "not_found"}
     return asdict(decision)
+
+
+@router.get("/media-proxy/{media_id}")
+async def media_proxy(media_id: str) -> Any:
+    media_url = await meta_client.retrieve_media_url(media_id)
+    if not media_url:
+        return Response(content=b'{"error":"media_not_found"}', status_code=404, media_type="application/json")
+    result = await meta_client.download_media(media_url)
+    if not result:
+        return Response(content=b'{"error":"download_failed"}', status_code=502, media_type="application/json")
+    content, content_type = result
+    return Response(content=content, media_type=content_type)
