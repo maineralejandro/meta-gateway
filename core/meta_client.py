@@ -418,7 +418,9 @@ class MetaAPIClient:
                 return None
             data = resp.json()
             url = data.get("url")
-            return url
+            if isinstance(url, str):
+                return url
+            return None
         except Exception as e:
             logger.error("meta_media_retrieve_error", media_id=media_id, error=str(e))
             return None
