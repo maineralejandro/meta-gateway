@@ -15,8 +15,8 @@ describe('ChatPanel', () => {
 
   it('renders messages with correct source styling', () => {
     const messages = [
-      { id: 1, phone: '+5691234', direction: 'inbound', source: 'customer', text: 'Hola', media_type: null, created_at: '2024-01-01T12:00:00Z' },
-      { id: 2, phone: '+5691234', direction: 'outbound', source: 'bot', text: 'Bienvenido', media_type: null, created_at: '2024-01-01T12:00:01Z' },
+      { id: 1, phone: '+5691234', direction: 'inbound', source: 'customer', text: 'Hola', media_type: null, media_url: null, created_at: '2024-01-01T12:00:00Z' },
+      { id: 2, phone: '+5691234', direction: 'outbound', source: 'bot', text: 'Bienvenido', media_type: null, media_url: null, created_at: '2024-01-01T12:00:01Z' },
     ]
     render(<ChatPanel messages={messages} phone="+5691234" state="BOT_ACTIVE" />)
     expect(screen.getByText('Hola')).toBeInTheDocument()
