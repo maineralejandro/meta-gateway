@@ -1,153 +1,183 @@
-import React, { useState, useEffect } from 'react';
-import { authFetch } from '../lib/auth';
-import CapabilityConfigurator from './CapabilityConfigurator';
+import React, { useState, useEffect } from 'react'
+import { authFetch } from '../lib/auth'
+import CapabilityConfigurator from './CapabilityConfigurator'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
 interface Agent {
-  id: number;
-  name: string;
-  description: string;
-  system_prompt: string;
-  escalation_marker: string;
-  fallback_responses: string;
-  is_active: boolean;
+  id: number
+  name: string
+  description: string
+  system_prompt: string
+  escalation_marker: string
+  fallback_responses: string
+  is_active: boolean
 }
 
 const AgentEditor: React.FC = () => {
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null);
-  const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null)
+  const [editingAgent, setEditingAgent] = useState<Agent | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+  const [showNewModal, setShowNewModal] = useState(false)
+  const [newAgentName, setNewAgentName] = useState('')
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  useEffect(() => { fetchAgents() }, [])
 
   useEffect(() => {
-    fetchAgents();
-  }, []);
+    if (toast) {
+      const t = setTimeout(() => setToast(null), 3000)
+      return () => clearTimeout(t)
+    }
+  }, [toast])
 
   const fetchAgents = async () => {
-    setLoading(true);
+    setLoading(true)
     try {
-      const res = await authFetch(`${API_URL}/api/agents`);
-      if (!res.ok) throw new Error('Failed to fetch agents');
-      const data = await res.json();
-      setAgents(data);
-      
-      const active = data.find((a: Agent) => a.is_active === true);
+      const res = await authFetch(`${API_URL}/api/agents`)
+      if (!res.ok) throw new Error('Failed to fetch agents')
+      const data = await res.json()
+      setAgents(data)
+      const active = data.find((a: Agent) => a.is_active === true)
       if (active) {
-        setSelectedAgentId(active.id);
-        setEditingAgent({ ...active });
+        setSelectedAgentId(active.id)
+        setEditingAgent({ ...active })
       } else if (data.length > 0) {
-        setSelectedAgentId(data[0].id);
-        setEditingAgent({ ...data[0] });
+        setSelectedAgentId(data[0].id)
+        setEditingAgent({ ...data[0] })
       }
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   const handleAgentSelect = (id: number) => {
-    const agent = agents.find(a => a.id === id);
+    const agent = agents.find(a => a.id === id)
     if (agent) {
-      setSelectedAgentId(id);
-      setEditingAgent({ ...agent });
+      setSelectedAgentId(id)
+      setEditingAgent({ ...agent })
     }
-  };
+  }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    if (!editingAgent) return;
-    const { name, value } = e.target;
-    setEditingAgent({ ...editingAgent, [name]: value });
-  };
+    if (!editingAgent) return
+    const { name, value } = e.target
+    setEditingAgent({ ...editingAgent, [name]: value })
+  }
 
   const handleSave = async () => {
-    if (!editingAgent) return;
-    setSaving(true);
+    if (!editingAgent) return
+    setSaving(true)
     try {
       const res = await authFetch(`${API_URL}/api/agents/${editingAgent.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editingAgent)
-      });
-      if (!res.ok) throw new Error('Failed to save agent');
-      await fetchAgents();
-      alert('Agente guardado con éxito');
+      })
+      if (!res.ok) throw new Error('Failed to save agent')
+      await fetchAgents()
+      setToast('Agente guardado con exito')
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message)
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
-  };
+  }
 
   const handleActivate = async () => {
-    if (!selectedAgentId) return;
-    setSaving(true);
+    if (!selectedAgentId) return
+    setSaving(true)
     try {
-      const res = await authFetch(`${API_URL}/api/agents/${selectedAgentId}/activate`, {
-        method: 'POST'
-      });
-      if (!res.ok) throw new Error('Failed to activate agent');
-      await fetchAgents();
-      alert('Agente activado con éxito');
+      const res = await authFetch(`${API_URL}/api/agents/${selectedAgentId}/activate`, { method: 'POST' })
+      if (!res.ok) throw new Error('Failed to activate agent')
+      await fetchAgents()
+      setToast('Agente activado con exito')
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message)
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
-  };
+  }
 
   const handleReload = async () => {
-    if (!selectedAgentId) return;
+    if (!selectedAgentId) return
     try {
-      await authFetch(`${API_URL}/api/agents/${selectedAgentId}/reload`, { method: 'POST' });
+      await authFetch(`${API_URL}/api/agents/${selectedAgentId}/reload`, { method: 'POST' })
     } catch {}
-  };
+  }
 
-  const handleNewAgent = async () => {
-    const name = prompt('Nombre del nuevo agente:');
-    if (!name) return;
+  const handleNewAgent = () => {
+    setNewAgentName('')
+    setShowNewModal(true)
+  }
 
-    setSaving(true);
+  const confirmNewAgent = async () => {
+    if (!newAgentName.trim()) return
+    setSaving(true)
     try {
       const res = await authFetch(`${API_URL}/api/agents`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name,
+          name: newAgentName.trim(),
           description: 'Nuevo agente',
           system_prompt: 'Eres un asistente servicial.',
           fallback_responses: '{}'
         })
-      });
-      if (!res.ok) throw new Error('Failed to create agent');
-      await fetchAgents();
+      })
+      if (!res.ok) throw new Error('Failed to create agent')
+      setShowNewModal(false)
+      setNewAgentName('')
+      await fetchAgents()
+      setToast('Agente creado con exito')
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message)
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
-  };
+  }
 
-  if (loading) return <div className="p-8 text-center text-gray-400">Cargando agentes...</div>;
+  const handleDeleteAgent = async () => {
+    if (!selectedAgentId) return
+    setShowDeleteConfirm(false)
+    setSaving(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/agents/${selectedAgentId}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to delete agent')
+      setSelectedAgentId(null)
+      setEditingAgent(null)
+      await fetchAgents()
+      setToast('Agente eliminado')
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <div className="p-8 text-center text-gray-400">Cargando agentes...</div>
 
   return (
     <div className="flex flex-col h-full w-full bg-gray-900 text-gray-100 overflow-hidden">
       <div className="p-6 border-b border-gray-800 flex justify-between items-center bg-gray-900/50 backdrop-blur-md sticky top-0 z-10">
         <div>
-          <h2 className="text-2xl font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">Configuración de Agente AI</h2>
+          <h2 className="text-2xl font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">Configuracion de Agente AI</h2>
           <p className="text-gray-400 text-sm">Gestiona los prompts y comportamientos del bot</p>
         </div>
         <div className="flex gap-3">
-          <button 
+          <button
             onClick={handleNewAgent}
             className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg transition-all border border-gray-700 flex items-center gap-2"
           >
             <span>+</span> Nuevo Agente
           </button>
-          <button 
+          <button
             onClick={handleSave}
             disabled={saving || !editingAgent}
             className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg font-medium transition-all shadow-lg shadow-emerald-900/20"
@@ -158,7 +188,6 @@ const AgentEditor: React.FC = () => {
       </div>
 
       <div className="flex-1 flex overflow-hidden min-h-0">
-        {/* Sidebar */}
         <div className="w-72 border-r border-gray-800 p-4 space-y-2 overflow-y-auto">
           <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-2">Mis Agentes</label>
           {agents.map(agent => (
@@ -166,9 +195,9 @@ const AgentEditor: React.FC = () => {
               key={agent.id}
               onClick={() => handleAgentSelect(agent.id)}
               className={`w-full text-left px-4 py-3 rounded-xl transition-all flex flex-col gap-1 ${
-                selectedAgentId === agent.id 
-                ? 'bg-emerald-500/10 border border-emerald-500/30 ring-1 ring-emerald-500/20' 
-                : 'hover:bg-gray-800/50 border border-transparent'
+                selectedAgentId === agent.id
+                  ? 'bg-emerald-500/10 border border-emerald-500/30 ring-1 ring-emerald-500/20'
+                  : 'hover:bg-gray-800/50 border border-transparent'
               }`}
             >
               <div className="flex items-center justify-between">
@@ -184,11 +213,11 @@ const AgentEditor: React.FC = () => {
           ))}
         </div>
 
-        {/* Editor Area */}
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
           {error && (
-            <div className="mb-6 p-4 bg-red-900/20 border border-red-500/30 text-red-400 rounded-xl flex items-center gap-3">
-              <span>⚠️</span> {error}
+            <div className="mb-6 p-4 bg-red-900/20 border border-red-500/30 text-red-400 rounded-xl flex items-center justify-between">
+              <span>{error}</span>
+              <button onClick={() => setError(null)} className="text-red-400 hover:text-red-200">&times;</button>
             </div>
           )}
 
@@ -210,7 +239,7 @@ const AgentEditor: React.FC = () => {
                     {editingAgent.is_active === true ? (
                       <span className="px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full text-xs font-bold uppercase">Activo Ahora</span>
                     ) : (
-                      <button 
+                      <button
                         onClick={handleActivate}
                         className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm transition-all border border-gray-700"
                       >
@@ -222,7 +251,7 @@ const AgentEditor: React.FC = () => {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-400">Descripción</label>
+                <label className="text-sm font-medium text-gray-400">Descripcion</label>
                 <input
                   name="description"
                   value={editingAgent.description}
@@ -257,41 +286,97 @@ const AgentEditor: React.FC = () => {
                 </div>
               </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-400">Fallback Responses (JSON)</label>
-              <textarea
-                name="fallback_responses"
-                value={editingAgent.fallback_responses}
-                onChange={handleInputChange}
-                rows={8}
-                className="w-full bg-gray-950/50 border border-gray-800 rounded-xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 transition-all font-mono text-sm text-gray-300 shadow-inner"
-              />
-            </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-400">Fallback Responses (JSON)</label>
+                <textarea
+                  name="fallback_responses"
+                  value={editingAgent.fallback_responses}
+                  onChange={handleInputChange}
+                  rows={8}
+                  className="w-full bg-gray-950/50 border border-gray-800 rounded-xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 transition-all font-mono text-sm text-gray-300 shadow-inner"
+                />
+              </div>
 
-            <div className="border-t border-gray-800 pt-6">
-              <CapabilityConfigurator agentId={editingAgent.id} onUpdate={handleReload} />
-            </div>
+              <div className="border-t border-gray-800 pt-6">
+                <CapabilityConfigurator agentId={editingAgent.id} onUpdate={handleReload} />
+              </div>
+
+              <div className="border-t border-gray-800 pt-6">
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={editingAgent.is_active}
+                  className="px-4 py-2 bg-red-900/30 hover:bg-red-900/50 text-red-400 border border-red-700/50 rounded-lg text-sm transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  Eliminar Agente
+                </button>
+                {editingAgent.is_active && (
+                  <p className="text-xs text-gray-600 mt-1">Desactiva el agente antes de eliminarlo</p>
+                )}
+              </div>
             </div>
           )}
         </div>
       </div>
+
+      {showNewModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-gray-800 p-6 rounded-xl w-full max-w-sm border border-gray-700">
+            <h3 className="text-lg font-bold text-white mb-4">Nuevo Agente</h3>
+            <input
+              value={newAgentName}
+              onChange={e => setNewAgentName(e.target.value)}
+              className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              placeholder="Nombre del agente"
+              autoFocus
+              onKeyDown={e => e.key === 'Enter' && confirmNewAgent()}
+            />
+            <div className="flex gap-3 mt-4 justify-end">
+              <button onClick={() => setShowNewModal(false)} className="px-4 py-2 text-gray-400 hover:text-gray-200">Cancelar</button>
+              <button
+                onClick={confirmNewAgent}
+                disabled={saving || !newAgentName.trim()}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg"
+              >
+                {saving ? 'Creando...' : 'Crear'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-gray-800 p-6 rounded-xl w-full max-w-sm border border-red-700/50">
+            <h3 className="text-lg font-bold text-red-400 mb-2">Eliminar Agente</h3>
+            <p className="text-gray-400 text-sm mb-4">Esta accion no se puede deshacer. El agente y toda su configuracion se eliminaran.</p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setShowDeleteConfirm(false)} className="px-4 py-2 text-gray-400 hover:text-gray-200">Cancelar</button>
+              <button
+                onClick={handleDeleteAgent}
+                disabled={saving}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white rounded-lg"
+              >
+                {saving ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-4 right-4 bg-emerald-600 text-white px-4 py-2 rounded-lg shadow-xl z-50 animate-slide-in">
+          {toast}
+        </div>
+      )}
+
       <style jsx>{`
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #1f2937;
-          border-radius: 10px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #374151;
-        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #374151; }
       `}</style>
     </div>
-  );
-};
+  )
+}
 
-export default AgentEditor;
+export default AgentEditor

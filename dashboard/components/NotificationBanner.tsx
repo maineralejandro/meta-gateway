@@ -18,7 +18,7 @@ export default function NotificationBanner({ notifications, onDismiss, onClick }
   if (notifications.length === 0) return null
 
   return (
-    <div className="absolute top-0 right-0 left-0 z-50 space-y-2 p-3">
+    <div className="fixed top-16 right-3 w-96 z-50 space-y-2">
       {notifications.map(n => (
         <div
           key={n.id}

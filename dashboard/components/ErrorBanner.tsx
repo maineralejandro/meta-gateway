@@ -15,7 +15,7 @@ export default function ErrorBanner({ errors, onDismiss }: Props) {
   if (errors.length === 0) return null
 
   return (
-    <div className="absolute top-0 right-0 left-0 z-40 space-y-2 p-3">
+    <div className="fixed top-16 right-3 w-96 z-40 space-y-2">
       {errors.map(e => (
         <div
           key={e.id}

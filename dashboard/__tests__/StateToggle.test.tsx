@@ -29,11 +29,20 @@ describe('StateToggle', () => {
     expect(screen.getByText(/Activo/)).toBeInTheDocument()
   })
 
-  it('calls onStateChange when clicking a different state', () => {
+  it('shows confirmation when clicking a different state', () => {
     render(
       <StateToggle currentState="BOT_ACTIVE" phone="+5691234" onStateChange={mockOnStateChange} onCloseSession={mockOnCloseSession} />
     )
     fireEvent.click(screen.getByText(/Solo Humano/))
+    expect(screen.getByText(/Confirmar/)).toBeInTheDocument()
+  })
+
+  it('calls onStateChange when confirming state change', () => {
+    render(
+      <StateToggle currentState="BOT_ACTIVE" phone="+5691234" onStateChange={mockOnStateChange} onCloseSession={mockOnCloseSession} />
+    )
+    fireEvent.click(screen.getByText(/Solo Humano/))
+    fireEvent.click(screen.getByText(/Confirmar/))
     expect(mockOnStateChange).toHaveBeenCalledWith('+5691234', 'HUMAN_ONLY')
   })
 
@@ -50,5 +59,13 @@ describe('StateToggle', () => {
       <StateToggle currentState="BOT_ACTIVE" phone="+5691234" onStateChange={mockOnStateChange} onCloseSession={mockOnCloseSession} />
     )
     expect(screen.getByText(/Cerrar Sesion/)).toBeInTheDocument()
+  })
+
+  it('shows confirmation when clicking close session', () => {
+    render(
+      <StateToggle currentState="BOT_ACTIVE" phone="+5691234" onStateChange={mockOnStateChange} onCloseSession={mockOnCloseSession} />
+    )
+    fireEvent.click(screen.getByText(/Cerrar Sesion/))
+    expect(screen.getByText(/Cerrar/)).toBeInTheDocument()
   })
 })

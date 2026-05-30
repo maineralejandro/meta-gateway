@@ -71,6 +71,7 @@ export default function ObservabilityTab() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [detailWidth, setDetailWidth] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('hermes_detail_width')
@@ -87,8 +88,13 @@ export default function ObservabilityTab() {
       if (res.ok) {
         const data = await res.json()
         setHealth(data)
+        setError(null)
+      } else {
+        setError(`Health: ${res.status}`)
       }
-    } catch {}
+    } catch {
+      setError('Error conectando al backend')
+    }
   }, [])
 
   const fetchTraces = useCallback(async () => {
@@ -100,8 +106,13 @@ export default function ObservabilityTab() {
       if (res.ok) {
         const data = await res.json()
         setTraces(data)
+        setError(null)
+      } else {
+        setError(`Traces: ${res.status}`)
       }
-    } catch {} finally {
+    } catch {
+      setError('Error cargando traces')
+    } finally {
       setLoading(false)
       setLastRefresh(new Date())
     }
@@ -114,7 +125,9 @@ export default function ObservabilityTab() {
         const data = await res.json()
         setSelectedTrace(data)
       }
-    } catch {}
+    } catch {
+      setError('Error cargando detalle del trace')
+    }
   }, [])
 
   const refreshAll = useCallback(async () => {
@@ -169,6 +182,12 @@ export default function ObservabilityTab() {
 
   return (
     <div className="flex flex-col h-full bg-gray-950">
+      {error && (
+        <div className="mx-3 mt-3 px-3 py-2 bg-red-900/60 border border-red-600 rounded-lg text-red-300 text-sm flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-200 ml-2">&times;</button>
+        </div>
+      )}
       <HealthBar
         health={health}
         lastRefresh={lastRefresh}

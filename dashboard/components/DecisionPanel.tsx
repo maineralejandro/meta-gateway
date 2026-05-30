@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import type { Conversation, AgentDecision } from '../lib/types'
 
 interface DecisionPanelProps {
@@ -8,6 +9,12 @@ interface DecisionPanelProps {
 }
 
 export default function DecisionPanel({ conversation, decisions, inspectedMessageId, onInspect }: DecisionPanelProps) {
+  const [visibleCount, setVisibleCount] = useState(10)
+
+  useEffect(() => {
+    setVisibleCount(10)
+  }, [conversation.phone])
+
   const inspectedDecision = inspectedMessageId
     ? decisions.find(d => d.message_id === inspectedMessageId)
     : null
@@ -81,7 +88,7 @@ export default function DecisionPanel({ conversation, decisions, inspectedMessag
         <p className="text-gray-600 text-[11px]">Sin decisiones registradas</p>
       ) : (
         <div className="space-y-2">
-          {decisions.slice(0, 10).map(d => (
+          {decisions.slice(0, visibleCount).map(d => (
             <button
               key={d.id}
               onClick={() => d.message_id && onInspect(d.message_id)}
@@ -104,9 +111,17 @@ export default function DecisionPanel({ conversation, decisions, inspectedMessag
               {d.escalate_reason && (
                 <div className="text-[10px] text-red-400 mt-1 truncate">{d.escalate_reason}</div>
               )}
-            </button>
-          ))}
-        </div>
+        </button>
+        ))}
+        {decisions.length > visibleCount && (
+          <button
+            onClick={() => setVisibleCount(prev => prev + 10)}
+            className="w-full text-center text-xs text-blue-400 hover:text-blue-300 py-2"
+          >
+            Ver mas ({decisions.length - visibleCount} restantes)
+          </button>
+        )}
+      </div>
       )}
       <div className="border-t border-gray-700 pt-3 space-y-2">
         <h3 className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Resumen conversacion</h3>
