@@ -46,8 +46,11 @@ export function buildWSHandlers(deps: WSHandlersDeps): Record<string, (data: any
       })
       if (data.phone === selectedPhone) {
         setMessages(prev => {
+          if (data.meta_message_id && prev.some(m => m.meta_message_id === data.meta_message_id)) {
+            return prev
+          }
           const last = prev[prev.length - 1]
-          if (last && last.direction === 'inbound' && last.source === 'customer' && last.text === data.message) {
+          if (!data.meta_message_id && last && last.direction === 'inbound' && last.source === 'customer' && last.text === data.message) {
             return prev
           }
           return [...prev, {
@@ -56,7 +59,9 @@ export function buildWSHandlers(deps: WSHandlersDeps): Record<string, (data: any
             direction: 'inbound',
             source: 'customer',
             text: data.message,
-            media_type: null,
+            media_type: data.media_type || null,
+            media_url: data.media_url || null,
+            meta_message_id: data.meta_message_id || null,
             created_at: new Date().toISOString(),
           }]
         })
@@ -75,6 +80,7 @@ export function buildWSHandlers(deps: WSHandlersDeps): Record<string, (data: any
             source: 'bot',
             text: data.response,
             media_type: null,
+            media_url: null,
             created_at: new Date().toISOString(),
           }]
         })
@@ -85,6 +91,12 @@ export function buildWSHandlers(deps: WSHandlersDeps): Record<string, (data: any
           })
         }
       }
+      setConversations(prev =>
+        prev.map(c => c.phone === data.phone
+          ? { ...c, last_message_at: new Date().toISOString() }
+          : c
+        )
+      )
       loadConversations()
     },
 
@@ -104,14 +116,27 @@ export function buildWSHandlers(deps: WSHandlersDeps): Record<string, (data: any
             source: 'human',
             text: data.message,
             media_type: null,
+            media_url: null,
             created_at: new Date().toISOString(),
           }]
         })
       }
+      setConversations(prev =>
+        prev.map(c => c.phone === data.phone
+          ? { ...c, last_message_at: new Date().toISOString() }
+          : c
+        )
+      )
       loadConversations()
     },
 
     'escalated': (data: any) => {
+      if (typeof window !== 'undefined') {
+        const soundEnabled = localStorage.getItem('hermes_sound') !== 'false'
+        if (soundEnabled) {
+          new Audio('/notification.mp3').play().catch(() => {})
+        }
+      }
       const notif: WSNotification = {
         id: `${data.phone}-${Date.now()}`,
         phone: data.phone,
@@ -128,29 +153,13 @@ export function buildWSHandlers(deps: WSHandlersDeps): Record<string, (data: any
         )
       )
       if (data.phone === selectedPhone) {
-        if (data.decision?.message_id) {
-          setMessages(prev => {
-            if (prev.some(m => m.id === data.decision.message_id)) return prev
-            return [...prev, {
-              id: data.decision.message_id,
-              phone: data.phone,
-              direction: 'outbound',
-              source: 'bot',
-              text: 'Un momento, te comunico con un atendedor.',
-              media_type: null,
-              created_at: new Date().toISOString(),
-            }]
-          })
+        if (data.decision) {
           setDecisions(prev => {
             if (prev.some(d => d.message_id === data.decision.message_id)) return prev
             return [data.decision, ...prev]
           })
-        } else {
-          loadMessages(selectedPhone)
-          if (data.decision) {
-            setDecisions(prev => [data.decision, ...prev])
-          }
         }
+        loadMessages(selectedPhone)
       }
       setTimeout(() => {
         setNotifications(prev => prev.filter(n => n.id !== notif.id))
@@ -182,16 +191,14 @@ export function buildWSHandlers(deps: WSHandlersDeps): Record<string, (data: any
     },
 
     'message-status': (data: any) => {
-      if (data.phone === selectedPhone) {
-        setMessages(prev =>
-          prev.map(m => {
-            if (m.meta_message_id === data.message_id || `meta-${m.id}` === data.message_id) {
-              return { ...m, meta_status: data.status }
-            }
-            return m
-          })
-        )
-      }
+      setMessages(prev =>
+        prev.map(m => {
+          if (m.meta_message_id === data.message_id || `meta-${m.id}` === data.message_id) {
+            return { ...m, meta_status: data.status }
+          }
+          return m
+        })
+      )
     },
   }
 }
