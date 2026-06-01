@@ -423,4 +423,5 @@ async def test_business_name_not_substituted_when_absent():
         await engine.generate("Hola")
 
     system_msg = next(m for m in captured_messages if m["role"] == "system")
-    assert system_msg["content"] == "Eres un asistente simple."
+    assert system_msg["content"].startswith("Eres un asistente simple.")
+    assert "<customer_message>" in system_msg["content"]

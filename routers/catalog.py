@@ -165,8 +165,8 @@ async def _reload_catalog() -> None:
     from core.capabilities.base import registry
     from core.container import container
 
-    cart_cap = container.cart_capability
-    await cart_cap.reload_catalog_from_db()
+    if container.cart_capability is not None:
+        await container.cart_capability.reload_catalog_from_db()
     registry.invalidate()
 
 

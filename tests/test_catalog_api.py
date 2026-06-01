@@ -30,6 +30,7 @@ def client():
     _mock_db.delete_promotion_items = AsyncMock()
     _mock_db.delete_promotion = AsyncMock()
     _mock_db.execute = AsyncMock()
+    _mock_db.execute_transaction = AsyncMock()
 
     app.dependency_overrides[get_db] = lambda: _mock_db
     c = TestClient(app)
@@ -79,7 +80,8 @@ def test_get_item_404(client):
 
 
 def test_create_item(client):
-    _mock_db.load_catalog_items.return_value = [_item()]
+    created_item = _item(key="new_item", name="New Item", price=5000, category="food")
+    _mock_db.load_catalog_items.return_value = [created_item]
     _mock_db.load_catalog_variants_for_item.return_value = []
     response = client.post(
         "/api/catalog/items",
@@ -262,13 +264,12 @@ def test_bulk_import(client):
 
 
 def test_reload(client):
-    with patch("routers.catalog.container") as mock_container:
-        mock_cart = MagicMock()
-        mock_cart._catalog = {"item_a": {}}
-        mock_cart.needs_search = True
-        mock_cart.reload_catalog_from_db = AsyncMock()
-        mock_container.cart_capability = mock_cart
+    mock_cart = MagicMock()
+    mock_cart._catalog = {"item_a": {}}
+    mock_cart.needs_search = True
+    mock_cart.reload_catalog_from_db = AsyncMock()
 
+    with patch("core.container.container.cart_capability", mock_cart):
         response = client.post("/api/catalog/reload", headers=AUTH_HEADERS)
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
